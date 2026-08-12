@@ -5,140 +5,110 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Xbox Controller — Onshape</title>
     <style>
-      /* Onshape brand palette, so the panel sits inside the product rather than
-         next to it. Cobalt #0A3AA1, green-blue #1B5FAA, baby blue #90CEF1,
+      /* Onshape brand palette so the panel sits inside the product rather than
+         beside it: cobalt #0A3AA1, green-blue #1B5FAA, baby blue #90CEF1,
          mikado #FFC20E. */
       :root {
-        --cobalt: #0A3AA1;
-        --blue:   #1B5FAA;
-        --sky:    #90CEF1;
-        --yellow: #FFC20E;
-        --ink:    #16202C;
-        --muted:  #5C6B7C;
-        --faint:  #8B98A6;
-        --paper:  #FFFFFF;
-        --panel:  #F2F6FA;
-        --rule:   #D8E1EA;
-        --ok:     #14683F;
-        --ok-bg:  #E3F3EA;
-        --bad:    #A3271F;
-        --bad-bg: #FAE7E5;
-        --warn:   #8A5A0B;
-        --warn-bg:#FFF3D6;
+        --cobalt:#0A3AA1; --blue:#1B5FAA; --sky:#90CEF1; --yellow:#FFC20E;
+        --ink:#16202C; --muted:#5C6B7C; --faint:#8B98A6;
+        --paper:#FFFFFF; --panel:#F2F6FA; --rule:#D8E1EA;
+        --ok:#14683F; --ok-bg:#E3F3EA; --bad:#A3271F; --bad-bg:#FAE7E5;
+        --warn:#8A5A0B; --warn-bg:#FFF3D6;
       }
       @media (prefers-color-scheme: dark) {
         :root:not([data-theme="light"]) {
-          --ink: #E6ECF3; --muted: #93A1B0; --faint: #74818F;
-          --paper: #161C24; --panel: #1C242E; --rule: #2A3540;
-          --blue: #6FA8E6; --sky: #4E7FB5; --cobalt: #86B4F0;
-          --ok: #62D69C; --ok-bg: #10301F; --bad: #FF8C86; --bad-bg: #3A1A18;
-          --warn: #F0C674; --warn-bg: #33280F;
+          --ink:#E6ECF3; --muted:#93A1B0; --faint:#74818F;
+          --paper:#161C24; --panel:#1C242E; --rule:#2A3540;
+          --blue:#6FA8E6; --sky:#4E7FB5; --cobalt:#86B4F0;
+          --ok:#62D69C; --ok-bg:#10301F; --bad:#FF8C86; --bad-bg:#3A1A18;
+          --warn:#F0C674; --warn-bg:#33280F;
         }
       }
-
-      * { box-sizing: border-box; }
+      * { box-sizing:border-box; }
       body {
-        margin: 0; padding: .75rem;
-        font: 13px/1.45 ui-sans-serif, "Segoe UI", system-ui, sans-serif;
-        color: var(--ink); background: var(--panel);
+        margin:0; padding:.7rem; color:var(--ink); background:var(--panel);
+        font:13px/1.45 ui-sans-serif,"Segoe UI",system-ui,sans-serif;
       }
-      h1 { font-size: .82rem; margin: 0 0 .55rem; font-weight: 600; letter-spacing: .01em; }
-      h1 b { color: var(--blue); }
-      h2 {
-        font-size: .64rem; letter-spacing: .13em; text-transform: uppercase;
-        color: var(--faint); margin: 1rem 0 .45rem; font-weight: 600;
-      }
+      h1 { font-size:.8rem; margin:0 0 .5rem; font-weight:600; }
+      h1 b { color:var(--blue); }
+      h2 { font-size:.62rem; letter-spacing:.13em; text-transform:uppercase;
+           color:var(--faint); margin:.9rem 0 .4rem; font-weight:600; }
 
-      #status {
-        padding: .5rem .7rem; border-radius: 6px; font-size: 12px;
-        border: 1px solid var(--rule); background: var(--paper); margin-bottom: .6rem;
-      }
-      #status.ok   { color: var(--ok);   border-color: var(--ok);   background: var(--ok-bg); }
-      #status.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-bg); }
-      #status.bad  { color: var(--bad);  border-color: var(--bad);  background: var(--bad-bg); }
+      .bar { padding:.45rem .65rem; border-radius:6px; font-size:12px;
+             border:1px solid var(--rule); background:var(--paper); margin-bottom:.5rem; }
+      .bar.ok  { color:var(--ok);  border-color:var(--ok);  background:var(--ok-bg); }
+      .bar.warn{ color:var(--warn);border-color:var(--warn);background:var(--warn-bg); }
+      .bar.bad { color:var(--bad); border-color:var(--bad); background:var(--bad-bg); }
 
-      .card { background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: .6rem; }
-      svg { display: block; width: 100%; height: auto; }
-      .shell { fill: var(--panel); stroke: var(--rule); stroke-width: 1.4; }
-      .well  { fill: var(--panel); stroke: var(--rule); }
-      .cap   { fill: var(--sky); stroke: var(--blue); transition: transform .05s linear; }
-      .btn   { fill: var(--panel); stroke: var(--rule); transition: fill .07s, stroke .07s; }
-      .btn.on{ fill: var(--blue); stroke: var(--cobalt); }
-      #b4.on { fill: var(--ok);   stroke: var(--ok); }
-      #b8.on { fill: var(--yellow); stroke: var(--warn); }
-      .lbl   { fill: var(--faint); font: 600 9px ui-monospace, Consolas, monospace; text-anchor: middle; }
-      .trigbg{ fill: var(--panel); stroke: var(--rule); }
-      .trigfill { fill: var(--blue); transition: width .05s linear; }
-      /* An axis that is bound gets a mikado ring — the map is visible on the pad. */
-      .boundring { fill: none; stroke: var(--yellow); stroke-width: 2.5; opacity: 0; }
-      .boundring.on { opacity: 1; }
+      .card { background:var(--paper); border:1px solid var(--rule); border-radius:8px; padding:.5rem; }
+      svg { display:block; width:100%; height:auto; }
+      .shell{fill:var(--panel);stroke:var(--rule);stroke-width:1.4}
+      .well {fill:var(--panel);stroke:var(--rule)}
+      .cap  {fill:var(--sky);stroke:var(--blue);transition:transform .05s linear}
+      .btn  {fill:var(--panel);stroke:var(--rule);transition:fill .07s,stroke .07s}
+      .btn.on{fill:var(--blue);stroke:var(--cobalt)}
+      #b4.on{fill:var(--ok);stroke:var(--ok)} #b8.on{fill:var(--yellow);stroke:var(--warn)}
+      .lbl  {fill:var(--faint);font:600 9px ui-monospace,Consolas,monospace;text-anchor:middle}
+      .trigbg{fill:var(--panel);stroke:var(--rule)} .trigfill{fill:var(--blue);transition:width .05s linear}
+      .boundring{fill:none;stroke:var(--yellow);stroke-width:2.5;opacity:0}
+      .boundring.on{opacity:1}
 
-      table { border-collapse: collapse; width: 100%; font-size: 12px; }
-      th {
-        text-align: left; font-size: .6rem; letter-spacing: .09em; text-transform: uppercase;
-        color: var(--faint); font-weight: 600; padding: .3rem .3rem; border-bottom: 1px solid var(--rule);
-        white-space: nowrap;
-      }
-      td { padding: .22rem .3rem; border-bottom: 1px solid var(--rule); vertical-align: middle; }
-      td.src { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); white-space: nowrap; }
-      td.live {
-        font-family: ui-monospace, Consolas, monospace; text-align: right;
-        font-variant-numeric: tabular-nums; white-space: nowrap;
-      }
-      tr.active td.live { color: var(--blue); font-weight: 600; }
-      tr.unbound td:not(.src) { opacity: .5; }
+      table{border-collapse:collapse;width:100%;font-size:12px}
+      th{text-align:left;font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;
+         color:var(--faint);font-weight:600;padding:.28rem .25rem;border-bottom:1px solid var(--rule);white-space:nowrap}
+      td{padding:.2rem .25rem;border-bottom:1px solid var(--rule);vertical-align:middle}
+      td.src{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--muted);white-space:nowrap}
+      td.ro{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--muted);
+            white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+      td.live{font-family:ui-monospace,Consolas,monospace;text-align:right;
+              font-variant-numeric:tabular-nums;white-space:nowrap}
+      tr.active td.live{color:var(--blue);font-weight:600}
+      tr.unbound td:not(.src){opacity:.45}
+      tr.bad td.ro{color:var(--bad)}
 
-      input, select {
-        font: inherit; font-size: 12px; padding: .18rem .3rem; width: 100%;
-        border: 1px solid var(--rule); border-radius: 4px;
-        background: var(--paper); color: var(--ink);
-      }
-      input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
-      input.num { text-align: right; font-family: ui-monospace, Consolas, monospace; }
-      input.bad { border-color: var(--bad); background: var(--bad-bg); }
+      input,select{font:inherit;font-size:12px;padding:.16rem .28rem;width:100%;
+        border:1px solid var(--rule);border-radius:4px;background:var(--paper);color:var(--ink)}
+      input:focus{outline:2px solid var(--blue);outline-offset:-1px}
+      input.num{text-align:right;font-family:ui-monospace,Consolas,monospace}
+      input.err{border-color:var(--bad);background:var(--bad-bg)}
 
-      .row { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-top: .6rem; }
-      button {
-        font: inherit; font-size: 12px; padding: .35rem .7rem; border-radius: 6px; cursor: pointer;
-        border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
-      }
-      button:hover { border-color: var(--blue); color: var(--blue); }
-      button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
-      button.primary:hover { background: var(--cobalt); border-color: var(--cobalt); color: #fff; }
-      button:focus-visible { outline: 2px solid var(--yellow); outline-offset: 1px; }
-
-      .hint { color: var(--faint); font-size: 11px; margin: .55rem 0 0; }
-      .hint code { font-family: ui-monospace, Consolas, monospace; }
-      .pill {
-        display: inline-block; padding: .08rem .38rem; border-radius: 99px; font-size: 10px;
-        font-family: ui-monospace, Consolas, monospace; border: 1px solid var(--rule); color: var(--muted);
-      }
-      .pill.on { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
-      .banner {
-        margin-top: .8rem; padding: .5rem .7rem; border-radius: 6px; font-size: 11.5px;
-        border: 1px solid var(--rule); border-left: 3px solid var(--yellow);
-        background: var(--paper); color: var(--muted);
-      }
+      .row{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin-top:.55rem}
+      button{font:inherit;font-size:12px;padding:.34rem .7rem;border-radius:6px;cursor:pointer;
+        border:1px solid var(--rule);background:var(--paper);color:var(--ink)}
+      button:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+      button:disabled{opacity:.45;cursor:default}
+      button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+      button.primary:hover:not(:disabled){background:var(--cobalt);border-color:var(--cobalt);color:#fff}
+      button.dirty{background:var(--yellow);border-color:var(--warn);color:#3a2b06}
+      button:focus-visible{outline:2px solid var(--yellow);outline-offset:1px}
+      .pill{display:inline-block;padding:.08rem .4rem;border-radius:99px;font-size:10px;
+        font-family:ui-monospace,Consolas,monospace;border:1px solid var(--rule);color:var(--muted)}
+      .pill.on{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+      .pill.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
+      .hint{color:var(--faint);font-size:11px;margin:.5rem 0 0}
+      .hint code{font-family:ui-monospace,Consolas,monospace}
     </style>
   </head>
   <body>
     <h1><b>Xbox Controller</b> &mdash; joint bindings</h1>
-    <div id="status" class="warn">Press any button on the controller&hellip;</div>
+
+    <div id="auth" class="bar warn">Checking Onshape connection&hellip;</div>
+    <div id="pad" class="bar warn">Press any button on the controller&hellip;</div>
 
     <div class="card">
       <svg viewBox="0 0 420 250" role="img" aria-label="Controller state">
-        <rect class="trigbg" x="78" y="10" width="58" height="13" rx="6.5" />
-        <rect class="trigfill" id="ltFill" x="79" y="11" width="0" height="11" rx="5.5" />
+        <rect class="trigbg" x="78" y="10" width="58" height="13" rx="6.5"/>
+        <rect class="trigfill" id="ltFill" x="79" y="11" width="0" height="11" rx="5.5"/>
         <text class="lbl" x="107" y="7">LT</text>
-        <circle class="boundring" id="ring-leftTrigger" cx="107" cy="16.5" r="16" />
-        <rect class="trigbg" x="284" y="10" width="58" height="13" rx="6.5" />
-        <rect class="trigfill" id="rtFill" x="285" y="11" width="0" height="11" rx="5.5" />
+        <circle class="boundring" id="ring-leftTrigger" cx="107" cy="16.5" r="16"/>
+        <rect class="trigbg" x="284" y="10" width="58" height="13" rx="6.5"/>
+        <rect class="trigfill" id="rtFill" x="285" y="11" width="0" height="11" rx="5.5"/>
         <text class="lbl" x="313" y="7">RT</text>
-        <circle class="boundring" id="ring-rightTrigger" cx="313" cy="16.5" r="16" />
+        <circle class="boundring" id="ring-rightTrigger" cx="313" cy="16.5" r="16"/>
 
-        <rect class="btn" id="b4" x="82" y="32" width="54" height="13" rx="6.5" />
+        <rect class="btn" id="b4" x="82" y="32" width="54" height="13" rx="6.5"/>
         <text class="lbl" x="109" y="41">LB</text>
-        <rect class="btn" id="b5" x="284" y="32" width="54" height="13" rx="6.5" />
+        <rect class="btn" id="b5" x="284" y="32" width="54" height="13" rx="6.5"/>
         <text class="lbl" x="311" y="41">RB</text>
 
         <path class="shell" d="M 96 74 C 130 56, 180 50, 210 50 C 240 50, 290 56, 324 74
@@ -146,31 +116,31 @@
           C 348 254, 322 242, 304 218 C 288 196, 268 186, 240 186
           L 180 186 C 152 186, 132 196, 116 218
           C 98 242, 72 254, 48 242 C 24 230, 14 196, 20 164
-          C 28 124, 60 92, 96 74 Z" />
+          C 28 124, 60 92, 96 74 Z"/>
 
-        <circle class="well" cx="135" cy="104" r="24" />
-        <circle class="boundring" id="ring-leftStick" cx="135" cy="104" r="28" />
-        <g id="lsWrap"><circle class="cap" id="ls" cx="135" cy="104" r="16" /></g>
-        <circle class="btn" id="b10" cx="135" cy="104" r="5.5" />
+        <circle class="well" cx="135" cy="104" r="24"/>
+        <circle class="boundring" id="ring-leftStick" cx="135" cy="104" r="28"/>
+        <g id="lsWrap"><circle class="cap" id="ls" cx="135" cy="104" r="16"/></g>
+        <circle class="btn" id="b10" cx="135" cy="104" r="5.5"/>
 
-        <circle class="well" cx="248" cy="158" r="24" />
-        <circle class="boundring" id="ring-rightStick" cx="248" cy="158" r="28" />
-        <g id="rsWrap"><circle class="cap" id="rs" cx="248" cy="158" r="16" /></g>
-        <circle class="btn" id="b11" cx="248" cy="158" r="5.5" />
+        <circle class="well" cx="248" cy="158" r="24"/>
+        <circle class="boundring" id="ring-rightStick" cx="248" cy="158" r="28"/>
+        <g id="rsWrap"><circle class="cap" id="rs" cx="248" cy="158" r="16"/></g>
+        <circle class="btn" id="b11" cx="248" cy="158" r="5.5"/>
 
-        <rect class="btn" id="b12" x="167" y="136" width="13" height="13" rx="3" />
-        <rect class="btn" id="b13" x="167" y="164" width="13" height="13" rx="3" />
-        <rect class="btn" id="b14" x="153" y="150" width="13" height="13" rx="3" />
-        <rect class="btn" id="b15" x="181" y="150" width="13" height="13" rx="3" />
+        <rect class="btn" id="b12" x="167" y="136" width="13" height="13" rx="3"/>
+        <rect class="btn" id="b13" x="167" y="164" width="13" height="13" rx="3"/>
+        <rect class="btn" id="b14" x="153" y="150" width="13" height="13" rx="3"/>
+        <rect class="btn" id="b15" x="181" y="150" width="13" height="13" rx="3"/>
 
-        <circle class="btn" id="b3" cx="300" cy="86"  r="10.5" /><text class="lbl" x="300" y="90">Y</text>
-        <circle class="btn" id="b1" cx="319" cy="105" r="10.5" /><text class="lbl" x="319" y="109">B</text>
-        <circle class="btn" id="b0" cx="300" cy="124" r="10.5" /><text class="lbl" x="300" y="128">A</text>
-        <circle class="btn" id="b2" cx="281" cy="105" r="10.5" /><text class="lbl" x="281" y="109">X</text>
+        <circle class="btn" id="b3" cx="300" cy="86"  r="10.5"/><text class="lbl" x="300" y="90">Y</text>
+        <circle class="btn" id="b1" cx="319" cy="105" r="10.5"/><text class="lbl" x="319" y="109">B</text>
+        <circle class="btn" id="b0" cx="300" cy="124" r="10.5"/><text class="lbl" x="300" y="128">A</text>
+        <circle class="btn" id="b2" cx="281" cy="105" r="10.5"/><text class="lbl" x="281" y="109">X</text>
 
-        <circle class="btn" id="b16" cx="210" cy="94" r="11" /><text class="lbl" x="210" y="98">G</text>
-        <circle class="btn" id="b8"  cx="180" cy="104" r="7.5" />
-        <circle class="btn" id="b9"  cx="240" cy="104" r="7.5" />
+        <circle class="btn" id="b16" cx="210" cy="94" r="11"/><text class="lbl" x="210" y="98">G</text>
+        <circle class="btn" id="b8" cx="180" cy="104" r="7.5"/>
+        <circle class="btn" id="b9" cx="240" cy="104" r="7.5"/>
         <text class="lbl" x="180" y="122" style="font-size:7px">BACK</text>
         <text class="lbl" x="240" y="122" style="font-size:7px">START</text>
       </svg>
@@ -179,265 +149,327 @@
     <h2>Bindings</h2>
     <div style="overflow-x:auto">
       <table id="tbl">
-        <thead>
-          <tr>
-            <th>Input</th><th>Joint (mate name)</th><th>Mode</th>
-            <th title="Degrees per second at full deflection. Ignored in position mode.">Rate</th>
-            <th>Min&deg;</th><th>Max&deg;</th><th title="Flip direction">Inv</th><th>Commanded</th>
-          </tr>
-        </thead>
+        <thead><tr>
+          <th>Input</th><th>Mate name</th>
+          <th title="Multiplies the speed. -1 flips direction.">Scale</th>
+          <th>Range</th><th>Commanded</th>
+        </tr></thead>
         <tbody></tbody>
       </table>
     </div>
 
     <div class="row">
-      <button id="save" class="primary">Save bindings</button>
-      <button id="reset">Reset all to 0&deg;</button>
-      <button id="clear">Clear</button>
-      <span id="saved" class="pill">not saved</span>
-    </div>
-
-    <div class="banner" id="notmoving">
-      <b>Nothing is being sent to Onshape yet.</b> This panel reads the controller and shows
-      what it <i>would</i> command. Driving the model needs a hosted service to hold the
-      OAuth secret and proxy the API &mdash; the browser cannot call Onshape directly
-      (no CORS, and the token exchange requires a client secret).
+      <button id="init" class="primary">Initialize</button>
+      <span id="initState" class="pill">not initialized</span>
+      <button id="home">Home all</button>
+      <button id="logout" style="margin-left:auto">Disconnect</button>
     </div>
 
     <p class="hint">
-      Type the mate name exactly as Onshape reports it, e.g. <code>Revolute_UpperArm_ForeArm</code>.
-      <b>Rate</b> integrates deflection as speed &mdash; right for sticks, which self-centre.
-      <b>Position</b> maps the control's travel straight onto Min&hellip;Max &mdash; only right
-      for a trigger, which stays where you put it. Hold <b>LB</b> for anything to move.
+      Type each mate name exactly as Onshape reports it, then press
+      <b>Initialize</b> &mdash; it checks the mate exists, is drivable, and reads its
+      limits. Editing a name marks the table dirty and you must Initialize again.
+      Hold <b>LB</b> to move anything; <b>LB+Back</b> homes. Sticks integrate as
+      speed; triggers map straight onto the joint's range.
     </p>
 
     <script>
-      // Client-side only, by necessity: Onshape's token exchange requires a
-      // client_secret (so it cannot happen in a browser) and the API sends no
-      // CORS headers (so the browser cannot call it even holding a token).
-      // Both were measured, not assumed. This panel therefore does input,
-      // bindings and integration; a hosted service will do auth and writes.
+      // Onshape hands the panel its context on the query string, so the app
+      // follows whatever model is open with no configuration at all.
+      const Q = new URLSearchParams(location.search);
+      const CTX = {
+        did: Q.get("documentId") || "",
+        wvm: Q.get("workspaceId") ? "w" : (Q.get("versionId") ? "v" : "w"),
+        wvmid: Q.get("workspaceId") || Q.get("versionId") || "",
+        eid: Q.get("elementId") || "",
+      };
+      const READONLY = CTX.wvm !== "w";   // versions are immutable
 
       const SOURCES = [
-        { id: "leftStickX",   label: "left stick X",  kind: "stick",   ring: "ring-leftStick"  },
-        { id: "leftStickY",   label: "left stick Y",  kind: "stick",   ring: "ring-leftStick"  },
-        { id: "rightStickX",  label: "right stick X", kind: "stick",   ring: "ring-rightStick" },
-        { id: "rightStickY",  label: "right stick Y", kind: "stick",   ring: "ring-rightStick" },
-        { id: "leftTrigger",  label: "left trigger",  kind: "trigger", ring: "ring-leftTrigger"  },
-        { id: "rightTrigger", label: "right trigger", kind: "trigger", ring: "ring-rightTrigger" },
+        { id:"leftStickX",   label:"left stick X",  kind:"stick",   ring:"ring-leftStick"   },
+        { id:"leftStickY",   label:"left stick Y",  kind:"stick",   ring:"ring-leftStick"   },
+        { id:"rightStickX",  label:"right stick X", kind:"stick",   ring:"ring-rightStick"  },
+        { id:"rightStickY",  label:"right stick Y", kind:"stick",   ring:"ring-rightStick"  },
+        { id:"leftTrigger",  label:"left trigger",  kind:"trigger", ring:"ring-leftTrigger" },
+        { id:"rightTrigger", label:"right trigger", kind:"trigger", ring:"ring-rightTrigger"},
       ];
 
-      // Per-control, not global: sticks here have a loose centre, triggers rest
-      // hard against zero and a wide band would only cost usable travel.
-      const DEADZONE = { stick: 0.2, trigger: 0.12 };
-      const ENABLE_BUTTON = 4;   // LB — deadman
-      const HOME_BUTTON = 8;     // Back
-      const HOME_RATE = 30;      // deg/s
-      const HOME_TOL = 0.05;
-      const MAX_DT = 0.1;        // clamp sample gaps
-      const STORE = "onshape-xbox-bindings-v1";
-
-      const DEFAULT = () => ({ joint: "", mode: "rate", rate: 45, min: -90, max: 90, invert: false });
+      // Per-control, not global: sticks here rest slightly off-centre, triggers
+      // rest hard against zero and a wide band would only cost usable travel.
+      const DZ = { stick: 0.2, trigger: 0.12 };
+      const ENABLE_BUTTON = 4, HOME_BUTTON = 8;
+      const HOME_RATE = 30, HOME_TOL = 0.05, MAX_DT = 0.1;
+      const FULL_RANGE_SECONDS = 3;   // full deflection crosses the joint in ~3s
+      const FALLBACK_RATE = 60;       // deg/s when a mate declares no limits
+      const CLAMP_UNLIMITED = 180;
+      const EPSILON_DEG = 0.15;       // ignore drift below this
+      const MIN_POST_MS = 150;        // cap writes independent of input rate
+      const STORE = "onshape-xbox-bindings-v2:" + CTX.eid;
 
       const $ = (id) => document.getElementById(id);
-      const bindings = {};
-      const commanded = {};
-      SOURCES.forEach((s) => { bindings[s.id] = DEFAULT(); commanded[s.id] = 0; });
+      const B = {};   // per-source binding: { joint, scale }
+      const S = {};   // per-source runtime: { commanded, info, ok, posted, dirtyVal }
+      SOURCES.forEach((s) => { B[s.id] = { joint:"", scale:1 }; S[s.id] = { commanded:0, info:null, ok:false, posted:0 }; });
 
       try {
         const saved = JSON.parse(localStorage.getItem(STORE) || "null");
-        if (saved) for (const s of SOURCES) if (saved[s.id]) Object.assign(bindings[s.id], saved[s.id]);
-      } catch { /* corrupt store — fall back to defaults rather than dying */ }
+        if (saved) for (const s of SOURCES) if (saved[s.id]) Object.assign(B[s.id], saved[s.id]);
+      } catch { /* corrupt store — defaults are fine */ }
 
-      // ---- table ----------------------------------------------------------
+      // ---- table ---------------------------------------------------------
       const tbody = document.querySelector("#tbl tbody");
       for (const s of SOURCES) {
-        const b = bindings[s.id];
         const tr = document.createElement("tr");
         tr.id = "row-" + s.id;
-        tr.innerHTML = `
-          <td class="src">${s.label}</td>
-          <td><input data-f="joint" placeholder="mate name" value="${b.joint.replace(/"/g, "&quot;")}"></td>
-          <td><select data-f="mode">
-                <option value="rate">rate</option>
-                <option value="position">position</option>
-              </select></td>
-          <td><input data-f="rate" class="num" type="number" step="5" value="${b.rate}"></td>
-          <td><input data-f="min" class="num" type="number" step="5" value="${b.min}"></td>
-          <td><input data-f="max" class="num" type="number" step="5" value="${b.max}"></td>
-          <td style="text-align:center"><input data-f="invert" type="checkbox" style="width:auto" ${b.invert ? "checked" : ""}></td>
-          <td class="live" id="live-${s.id}">&mdash;</td>`;
+        tr.innerHTML =
+          `<td class="src">${s.label}</td>` +
+          `<td><input data-f="joint" placeholder="mate name" value="${B[s.id].joint.replace(/"/g,"&quot;")}"></td>` +
+          `<td><input data-f="scale" class="num" type="number" step="0.1" value="${B[s.id].scale}"></td>` +
+          `<td class="ro" id="ro-${s.id}">&mdash;</td>` +
+          `<td class="live" id="live-${s.id}">&mdash;</td>`;
         tbody.appendChild(tr);
-
-        tr.querySelector('[data-f="mode"]').value = b.mode;
         tr.querySelectorAll("[data-f]").forEach((inp) => {
           inp.addEventListener("input", () => {
             const f = inp.dataset.f;
-            b[f] = inp.type === "checkbox" ? inp.checked
-                 : (f === "joint" || f === "mode") ? inp.value
-                 : Number(inp.value);
-            markDirty();
-            validate(s.id);
+            if (f === "joint") { B[s.id].joint = inp.value; setDirty(true); S[s.id].ok = false; S[s.id].info = null; $("ro-"+s.id).innerHTML = "&mdash;"; }
+            else B[s.id].scale = Number(inp.value) || 0;   // scale needs no re-init
+            persist();
+            paintRow(s);
           });
         });
       }
+      const persist = () => localStorage.setItem(STORE, JSON.stringify(B));
+      const paintRow = (s) => $("row-"+s.id).classList.toggle("unbound", !B[s.id].joint.trim());
+      SOURCES.forEach(paintRow);
 
-      // Position mode is only meaningful on a control that stays put. A stick
-      // returns to centre, so a position-mapped stick would snap the joint back
-      // every time you let go — flag it rather than let it be configured quietly.
-      function validate(id) {
-        const s = SOURCES.find((x) => x.id === id);
-        const b = bindings[id];
-        const tr = $("row-" + id);
-        const modeEl = tr.querySelector('[data-f="mode"]');
-        const minEl = tr.querySelector('[data-f="min"]');
-        const maxEl = tr.querySelector('[data-f="max"]');
-        const badMode = b.mode === "position" && s.kind === "stick";
-        const badRange = !(b.max > b.min);
-        modeEl.classList.toggle("bad", badMode);
-        modeEl.title = badMode ? "Position mode on a self-centring stick will snap back to centre. Use rate." : "";
-        minEl.classList.toggle("bad", badRange);
-        maxEl.classList.toggle("bad", badRange);
-        tr.classList.toggle("unbound", !b.joint.trim());
+      // ---- dirty flag ------------------------------------------------------
+      // Any edit to a mate name invalidates what Initialize learned, so driving
+      // is refused until it is run again. Scale is exempt — it changes nothing
+      // the server verified.
+      let dirty = true, initialized = false;
+      function setDirty(v) {
+        dirty = v;
+        const b = $("init"), p = $("initState");
+        b.classList.toggle("dirty", v && initialized);
+        if (!initialized) { p.textContent = "not initialized"; p.className = "pill"; }
+        else if (v) { p.textContent = "changed — Initialize again"; p.className = "pill warn"; }
+        else { p.textContent = "initialized"; p.className = "pill on"; }
       }
-      SOURCES.forEach((s) => validate(s.id));
+      setDirty(true);
 
-      let dirty = false;
-      function markDirty() { dirty = true; $("saved").textContent = "unsaved"; $("saved").classList.remove("on"); }
-      $("save").addEventListener("click", () => {
-        localStorage.setItem(STORE, JSON.stringify(bindings));
-        dirty = false; $("saved").textContent = "saved"; $("saved").classList.add("on");
-      });
-      $("reset").addEventListener("click", () => { for (const s of SOURCES) commanded[s.id] = 0; });
-      $("clear").addEventListener("click", () => {
-        if (!confirm("Clear every binding?")) return;
+      // ---- auth ------------------------------------------------------------
+      let isAuthed = false;
+      async function refreshAuth() {
+        try {
+          const r = await fetch("/auth/status");
+          const j = await r.json();
+          isAuthed = j.authed;
+          if (!j.configured) setBar("auth","bad","Server has no Onshape client id/secret configured.");
+          else if (j.authed)  setBar("auth","ok","Connected to Onshape.");
+          else setBar("auth","warn",'Not connected. <button id="login" style="margin-left:.4rem">Connect to Onshape</button>');
+          const lg = $("login");
+          if (lg) lg.onclick = () => {
+            // Onshape's authorize page refuses to be framed, so this has to be a
+            // popup — navigating the panel's own iframe there just goes blank.
+            const w = window.open("/auth/login", "onshape-oauth", "width=560,height=760");
+            const poll = setInterval(async () => {
+              await refreshAuth();
+              if (isAuthed || (w && w.closed)) clearInterval(poll);
+            }, 1200);
+          };
+        } catch { setBar("auth","bad","Cannot reach the panel server."); }
+      }
+      function setBar(id, cls, html) { const e = $(id); e.className = "bar " + cls; e.innerHTML = html; }
+      $("logout").onclick = async () => { await fetch("/auth/logout"); initialized = false; setDirty(true); refreshAuth(); };
+
+      // ---- initialize ------------------------------------------------------
+      $("init").onclick = async () => {
+        if (!CTX.did || !CTX.eid) { setBar("auth","bad","No Onshape context in the URL — open this from the assembly panel."); return; }
+        $("init").disabled = true;
+        const prev = $("initState").textContent;
+        $("initState").textContent = "checking…"; $("initState").className = "pill";
+        try {
+          const r = await fetch(`/api/mates?did=${CTX.did}&wvm=${CTX.wvm}&wvmid=${CTX.wvmid}&eid=${CTX.eid}`);
+          const j = await r.json();
+          if (!r.ok) throw new Error(j.error || "failed");
+          const byName = new Map(j.mates.map((m) => [m.mateName, m]));
+
+          let bad = 0, good = 0;
+          for (const s of SOURCES) {
+            const name = B[s.id].joint.trim();
+            const cell = $("ro-"+s.id), tr = $("row-"+s.id);
+            const inp = tr.querySelector('[data-f="joint"]');
+            S[s.id].info = null; S[s.id].ok = false;
+            tr.classList.remove("bad"); inp.classList.remove("err");
+            if (!name) { cell.innerHTML = "&mdash;"; continue; }
+
+            const m = byName.get(name);
+            if (!m) { cell.textContent = "not found"; tr.classList.add("bad"); inp.classList.add("err"); bad++; continue; }
+            if (!m.fields.length) { cell.textContent = "not drivable"; tr.classList.add("bad"); inp.classList.add("err"); bad++; continue; }
+
+            S[s.id].info = m; S[s.id].ok = true; good++;
+            // Seed from the model so the first nudge does not teleport the joint.
+            S[s.id].commanded = m.currentDeg ?? 0;
+            S[s.id].posted = S[s.id].commanded;
+            cell.textContent = m.limits?.text || "unlimited";
+            cell.title = m.limits ? "" : "This mate declares no limits; clamped to ±" + CLAMP_UNLIMITED + "°";
+          }
+          initialized = good > 0;
+          setDirty(bad > 0);
+          if (bad) $("initState").textContent = `${good} ok, ${bad} not found`;
+          setBar("auth", bad ? "warn" : "ok",
+            bad ? `Initialized ${good}; ${bad} mate name(s) did not match. Available: ` +
+                  j.mates.map((m)=>m.mateName).join(", ")
+                : `Connected. ${good} joint${good===1?"":"s"} verified.`);
+        } catch (e) {
+          initialized = false; setDirty(true);
+          setBar("auth","bad","Initialize failed: " + e.message);
+          $("initState").textContent = prev;
+        } finally { $("init").disabled = false; }
+      };
+
+      // ---- driving ---------------------------------------------------------
+      let flushing = false, lastFlush = 0;
+      async function flush() {
+        if (flushing || READONLY) return;
+        const targets = [];
         for (const s of SOURCES) {
-          Object.assign(bindings[s.id], DEFAULT());
-          const tr = $("row-" + s.id);
-          tr.querySelector('[data-f="joint"]').value = "";
-          tr.querySelector('[data-f="mode"]').value = "rate";
-          tr.querySelector('[data-f="rate"]').value = 45;
-          tr.querySelector('[data-f="min"]').value = -90;
-          tr.querySelector('[data-f="max"]').value = 90;
-          tr.querySelector('[data-f="invert"]').checked = false;
-          validate(s.id);
+          if (!S[s.id].ok) continue;
+          if (Math.abs(S[s.id].commanded - S[s.id].posted) < EPSILON_DEG) continue;
+          targets.push({ mateName: B[s.id].joint.trim(), valueSi: S[s.id].commanded * Math.PI / 180, _s: s.id });
         }
-        markDirty();
-      });
-      addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+        if (!targets.length) return;
+        flushing = true; lastFlush = performance.now();
+        // Snapshot what this POST carries: values staged while it is in flight
+        // were never sent, and clearing against them silently loses the newest
+        // position while reporting success.
+        const sent = targets.map((t) => ({ id: t._s, v: S[t._s].commanded }));
+        try {
+          const r = await fetch("/api/drive", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...CTX, targets: targets.map(({_s, ...t}) => t) }),
+          });
+          if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || r.status); }
+          for (const { id, v } of sent) S[id].posted = v;
+        } catch (e) {
+          setBar("auth","bad","Write failed: " + e.message);
+        } finally { flushing = false; }
+      }
 
-      // ---- pad ------------------------------------------------------------
+      // ---- pad -------------------------------------------------------------
       // Not every "gamepad" is one: a Jabra speakerphone enumerates as a pad
-      // with 0 axes and can sort ahead of the real controller. Require 4 axes.
+      // with 0 axes and can sort ahead of the real controller.
       function pickPad() {
         const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
         const usable = pads.filter((p) => p && p.connected && p.axes.length >= 4);
         return usable.find((p) => p.mapping === "standard") || usable[0] || null;
       }
-
-      function deadzone(v, kind) {
-        const t = DEADZONE[kind];
-        if (Math.abs(v) < t) return 0;
-        return (v - Math.sign(v) * t) / (1 - t);   // rescale, so full travel still reaches 1
-      }
-      const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-
+      const dz = (v,k) => { const t = DZ[k]; return Math.abs(v) < t ? 0 : (v - Math.sign(v)*t)/(1-t); };
+      const clamp = (v,lo,hi) => Math.min(hi, Math.max(lo, v));
       function raw(pad, s) {
         switch (s.id) {
-          case "leftStickX":   return pad.axes[0] ?? 0;
-          case "leftStickY":   return pad.axes[1] ?? 0;
-          case "rightStickX":  return pad.axes[2] ?? 0;
-          case "rightStickY":  return pad.axes[3] ?? 0;
-          case "leftTrigger":  return pad.buttons[6]?.value ?? 0;
-          case "rightTrigger": return pad.buttons[7]?.value ?? 0;
+          case "leftStickX":  return pad.axes[0] ?? 0;
+          case "leftStickY":  return pad.axes[1] ?? 0;
+          case "rightStickX": return pad.axes[2] ?? 0;
+          case "rightStickY": return pad.axes[3] ?? 0;
+          case "leftTrigger": return pad.buttons[6]?.value ?? 0;
+          case "rightTrigger":return pad.buttons[7]?.value ?? 0;
         }
         return 0;
       }
+      // Range drives the speed, so scale=1 feels sane on every joint regardless
+      // of whether it travels 20° or 300°.
+      function boundsOf(id) {
+        const lim = S[id].info?.limits;
+        if (lim && lim.kind === "angle" && lim.minDeg != null && lim.maxDeg != null)
+          return [Math.min(lim.minDeg, lim.maxDeg), Math.max(lim.minDeg, lim.maxDeg)];
+        return [-CLAMP_UNLIMITED, CLAMP_UNLIMITED];
+      }
+      function rateOf(id) {
+        const lim = S[id].info?.limits;
+        if (lim && lim.kind === "angle" && lim.minDeg != null && lim.maxDeg != null)
+          return Math.abs(lim.maxDeg - lim.minDeg) / FULL_RANGE_SECONDS;
+        return FALLBACK_RATE;
+      }
 
       let last = 0, homing = false, homePrev = false, everPad = false, padName = "";
-
-      function setStatus(text, cls) { $("status").textContent = text; $("status").className = cls; }
+      $("home").onclick = () => { if (initialized && !dirty) homing = true; };
 
       function tick(now) {
         requestAnimationFrame(tick);
         const pad = pickPad();
-
         if (!pad) {
-          setStatus(everPad ? "Controller disconnected." : "Press any button on the controller…", everPad ? "bad" : "warn");
-          last = 0;
-          return;
+          setBar("pad", everPad ? "bad" : "warn", everPad ? "Controller disconnected." : "Press any button on the controller…");
+          last = 0; return;
         }
         if (!everPad) { everPad = true; padName = pad.id; }
 
         const enabled = pad.buttons[ENABLE_BUTTON]?.pressed ?? false;
         const homeDown = pad.buttons[HOME_BUTTON]?.pressed ?? false;
+        const live = enabled && initialized && !dirty && !READONLY;
 
-        // Home must not bypass the deadman: it is the largest motion the arm
-        // makes, and a "go home" that fired with the pad on a desk is the one
-        // most likely to swing it through something.
-        if (enabled && homeDown && !homePrev && !homing) homing = true;
+        // Home never bypasses the deadman: it is the largest motion the arm
+        // makes and the one most likely to swing it through something.
+        if (live && homeDown && !homePrev && !homing) homing = true;
         homePrev = homeDown;
         if (!enabled && homing) homing = false;
 
-        const dt = last === 0 ? 0 : Math.min((now - last) / 1000, MAX_DT);
+        const dt = last === 0 ? 0 : Math.min((now - last)/1000, MAX_DT);
         last = now;
 
-        // A held trigger is a steady state, not a movement — position-mode
-        // controls must not cancel a homing run or a closed grip would make
-        // homing the arm impossible without letting go.
-        if (homing && SOURCES.some((s) => bindings[s.id].mode !== "position" &&
-              deadzone(raw(pad, s), s.kind) !== 0)) homing = false;
+        // A held trigger is a steady state, not a movement — position controls
+        // must not cancel homing or a closed grip would make homing impossible.
+        if (homing && SOURCES.some((s) => s.kind === "stick" && dz(raw(pad,s), s.kind) !== 0)) homing = false;
 
         let allHome = true;
         for (const s of SOURCES) {
-          const b = bindings[s.id];
+          const st = S[s.id], b = B[s.id];
           const bound = !!b.joint.trim();
-          const lo = Math.min(b.min, b.max), hi = Math.max(b.min, b.max);
-          let v = deadzone(raw(pad, s), s.kind);
-          let next = commanded[s.id];
+          let v = dz(raw(pad, s), s.kind);
+          const [lo, hi] = boundsOf(s.id);
 
-          if (bound && enabled) {
-            if (b.mode === "position") {
-              const t = clamp(b.invert ? 1 - Math.abs(v) : Math.abs(v), 0, 1);
-              next = lo + t * (hi - lo);
+          if (st.ok && live) {
+            if (s.kind === "trigger") {
+              // Position: a trigger stays where you put it, so travel maps
+              // straight onto the joint's range. Negative scale flips the ends.
+              const t = clamp(b.scale < 0 ? 1 - Math.abs(v) : Math.abs(v), 0, 1);
+              st.commanded = lo + t * (hi - lo);
             } else if (homing) {
-              const remaining = 0 - commanded[s.id];
-              if (Math.abs(remaining) <= HOME_TOL) next = 0;
-              else { allHome = false; next = commanded[s.id] + Math.sign(remaining) * Math.min(HOME_RATE * dt, Math.abs(remaining)); }
+              const rem = 0 - st.commanded;
+              if (Math.abs(rem) <= HOME_TOL) st.commanded = 0;
+              else { allHome = false; st.commanded += Math.sign(rem) * Math.min(HOME_RATE*dt, Math.abs(rem)); }
+              st.commanded = clamp(st.commanded, lo, hi);
             } else {
-              if (b.invert) v = -v;
-              next = commanded[s.id] + v * (b.rate || 0) * dt;
+              st.commanded = clamp(st.commanded + v * b.scale * rateOf(s.id) * dt, lo, hi);
             }
-            next = clamp(next, lo, hi);
           }
-          commanded[s.id] = next;
 
-          const cell = $("live-" + s.id);
-          cell.textContent = bound ? next.toFixed(2) + "°" : "—";
-          $("row-" + s.id).classList.toggle("active", bound && enabled && Math.abs(v) > 0);
-
-          const ring = $(s.ring);
-          if (ring) ring.classList.toggle("on", bound);
+          $("live-"+s.id).textContent = st.ok ? st.commanded.toFixed(2) + "°" : (bound ? "—" : "—");
+          $("row-"+s.id).classList.toggle("active", st.ok && live && Math.abs(v) > 0);
+          const ring = $(s.ring); if (ring) ring.classList.toggle("on", st.ok);
         }
         if (homing && allHome) homing = false;
 
-        // ---- diagram ----
-        const ax = (i) => pad.axes[i] ?? 0;
-        const move = (id, x, y) => { const e = $(id); if (e) e.setAttribute("transform", `translate(${x * 8} ${y * 8})`); };
-        move("lsWrap", ax(0), ax(1));
-        move("rsWrap", ax(2), ax(3));
-        $("ltFill").setAttribute("width", ((pad.buttons[6]?.value ?? 0) * 56).toFixed(1));
-        $("rtFill").setAttribute("width", ((pad.buttons[7]?.value ?? 0) * 56).toFixed(1));
-        for (let i = 0; i < 17; i++) {
-          const e = $("b" + i);
-          if (e) e.classList.toggle("on", pad.buttons[i]?.pressed ?? false);
-        }
+        if (live && now - lastFlush >= MIN_POST_MS) flush();
 
-        const boundCount = SOURCES.filter((s) => bindings[s.id].joint.trim()).length;
-        if (homing) setStatus("Homing to 0° at " + HOME_RATE + "°/s — move a stick to cancel", "warn");
-        else if (enabled) setStatus(`Deadman held — ${boundCount} joint${boundCount === 1 ? "" : "s"} live`, "ok");
-        else setStatus(`${padName} — hold LB to move (LB+Back homes)`, "warn");
+        // diagram
+        const ax = (i) => pad.axes[i] ?? 0;
+        const mv = (id,x,y) => { const e=$(id); if(e) e.setAttribute("transform",`translate(${x*8} ${y*8})`); };
+        mv("lsWrap", ax(0), ax(1)); mv("rsWrap", ax(2), ax(3));
+        $("ltFill").setAttribute("width", ((pad.buttons[6]?.value ?? 0)*56).toFixed(1));
+        $("rtFill").setAttribute("width", ((pad.buttons[7]?.value ?? 0)*56).toFixed(1));
+        for (let i=0;i<17;i++){ const e=$("b"+i); if(e) e.classList.toggle("on", pad.buttons[i]?.pressed ?? false); }
+
+        const n = SOURCES.filter((s) => S[s.id].ok).length;
+        if (READONLY) setBar("pad","bad","Open a workspace, not a version — versions are read-only.");
+        else if (homing) setBar("pad","warn",`Homing to 0° at ${HOME_RATE}°/s — move a stick to cancel`);
+        else if (!initialized || dirty) setBar("pad","warn", padName + " — press Initialize before driving");
+        else if (enabled) setBar("pad","ok", `Deadman held — ${n} joint${n===1?"":"s"} live`);
+        else setBar("pad","warn", padName + " — hold LB to move (LB+Back homes)");
       }
+
+      refreshAuth();
+      setInterval(refreshAuth, 60_000);
       requestAnimationFrame(tick);
     </script>
   </body>

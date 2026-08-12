@@ -1,0 +1,13 @@
+{
+  "name": "onshape-xbox-panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Onshape right-panel app: drive assembly mates from an Xbox controller",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  }
+}
