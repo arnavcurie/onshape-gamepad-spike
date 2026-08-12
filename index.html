@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gamepad-in-iframe spike</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 1.1rem;
+        font: 14px/1.5 ui-sans-serif, "Segoe UI", system-ui, sans-serif;
+        background: #11151a; color: #e6ecf2;
+      }
+      h1 { font-size: 1rem; margin: 0 0 .9rem; font-weight: 600; letter-spacing: .01em; }
+      h1 span { color: #7c8794; font-weight: 400; }
+
+      #verdict {
+        padding: .9rem 1.1rem; border-radius: 8px; margin-bottom: 1rem;
+        font-size: 1.05rem; font-weight: 600; border: 1px solid;
+      }
+      .pass { background: #10301f; border-color: #2f7f57; color: #7ee2a8; }
+      .fail { background: #3a1a1a; border-color: #8d3a3a; color: #ff9a9a; }
+      .wait { background: #33280f; border-color: #8a6a1e; color: #f0c674; }
+      #verdict small { display: block; font-weight: 400; font-size: .8rem; margin-top: .35rem; opacity: .85; }
+
+      table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+      td { padding: .38rem .55rem; border-bottom: 1px solid #232a33; vertical-align: top;
+           font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+      td.k { color: #808b99; width: 15rem; }
+      .y { color: #7ee2a8; } .n { color: #ff9a9a; } .m { color: #f0c674; }
+
+      .bar { display: inline-block; height: 7px; background: #4c8dff; border-radius: 4px; vertical-align: middle; }
+      button {
+        font: inherit; padding: .45rem .9rem; border-radius: 6px; cursor: pointer;
+        background: #1b222b; color: #e6ecf2; border: 1px solid #333d49;
+      }
+      button:hover { border-color: #4c8dff; color: #9ccbff; }
+      pre {
+        background: #0c1014; border: 1px solid #232a33; border-radius: 6px;
+        padding: .7rem .85rem; font-size: 11px; overflow-x: auto; white-space: pre-wrap;
+        color: #b9c4d0; margin: .6rem 0 0;
+      }
+      .hint { color: #808b99; font-size: 11.5px; margin-top: .9rem; }
+
+      /* An Onshape "Element right panel" is a narrow strip. Stack each check
+         onto its own line rather than letting a fixed label column squeeze the
+         value into unreadable wrapping — a mangled layout here would be easy to
+         misread as a failed check. */
+      @media (max-width: 560px) {
+        body { padding: .7rem; }
+        h1 { font-size: .9rem; }
+        h1 span { display: none; }
+        #verdict { font-size: .92rem; padding: .7rem .8rem; }
+        table, tbody, tr, td { display: block; width: 100%; }
+        tr { border-bottom: 1px solid #232a33; padding: .3rem 0; }
+        td { border: 0; padding: 0; }
+        td.k { width: auto; font-size: 10.5px; text-transform: uppercase;
+               letter-spacing: .06em; color: #6d7783; }
+        pre { font-size: 10px; }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Gamepad-in-iframe spike <span>&mdash; can an Onshape app tab see a controller?</span></h1>
+
+    <div id="verdict" class="wait">Checking&hellip;</div>
+
+    <table id="checks"></table>
+
+    <button id="copy">Copy diagnostic</button>
+    <pre id="dump">&hellip;</pre>
+
+    <p class="hint">
+      The Permissions&nbsp;Policy answer does <b>not</b> need a controller connected — it is
+      reported by the browser directly. The live readout below it is the second question:
+      whether a focused iframe actually receives axis updates.
+    </p>
+
+    <script>
+      // Two independent questions, and they can disagree:
+      //
+      //   1. Is the `gamepad` Permissions Policy feature delegated to this frame?
+      //      The feature defaults to `self`, so a cross-origin iframe only gets it
+      //      if the embedder sets allow="gamepad". document.featurePolicy answers
+      //      this immediately, with no controller and no user gesture.
+      //
+      //   2. Even if allowed, does the frame receive live updates? Chrome only
+      //      refreshes gamepad state for the FOCUSED document, and a frame has to
+      //      hold focus itself — clicking the CAD viewport would take it away.
+      //
+      // Question 1 decides whether the integrated-app route is viable at all.
+      // Question 2 decides whether it is actually nicer than the localhost bridge.
+
+      const el = (id) => document.getElementById(id);
+      const rows = [];
+      let everSaw = false, maxAxis = 0, samples = 0, lastIds = [];
+
+      const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+
+      function policyState() {
+        const fp = document.featurePolicy || document.permissionsPolicy;
+        if (!fp || typeof fp.allowsFeature !== "function") return { supported: false, allowed: null };
+        let known = true;
+        try { known = fp.features().includes("gamepad"); } catch { known = true; }
+        return { supported: true, allowed: fp.allowsFeature("gamepad"), known };
+      }
+
+      function row(k, v, cls) { rows.push([k, v, cls || ""]); }
+
+      function render() {
+        el("checks").innerHTML = rows
+          .map(([k, v, c]) => `<tr><td class="k">${k}</td><td class="${c}">${v}</td></tr>`)
+          .join("");
+      }
+
+      function setVerdict(cls, text, sub) {
+        const v = el("verdict");
+        v.className = cls;
+        v.innerHTML = text + (sub ? `<small>${sub}</small>` : "");
+      }
+
+      function tick() {
+        requestAnimationFrame(tick);
+        const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
+        const live = pads.filter((p) => p && p.connected);
+        if (live.length) {
+          everSaw = true;
+          lastIds = live.map((p) => `${p.id} [${p.mapping || "no mapping"}, ${p.axes.length} axes]`);
+          for (const p of live) for (const a of p.axes) maxAxis = Math.max(maxAxis, Math.abs(a));
+          samples++;
+        }
+
+        const pol = policyState();
+        rows.length = 0;
+        row("in an iframe", inIframe ? "YES" : "no — open this inside Onshape", inIframe ? "y" : "m");
+        row("this origin", location.origin);
+        row("secure context", window.isSecureContext ? "YES" : "NO — https required", window.isSecureContext ? "y" : "n");
+        row("featurePolicy API", pol.supported ? "available" : "NOT available (non-Chromium?)", pol.supported ? "y" : "m");
+        row("gamepad allowed here",
+            pol.supported ? (pol.allowed ? "YES — embedder delegated it" : "NO — embedder did not set allow=\"gamepad\"") : "unknown",
+            pol.supported ? (pol.allowed ? "y" : "n") : "m");
+        row("navigator.getGamepads", navigator.getGamepads ? "present" : "absent", navigator.getGamepads ? "y" : "n");
+        row("document.hasFocus()", document.hasFocus() ? "YES" : "no — click this frame", document.hasFocus() ? "y" : "m");
+        row("pads visible now", live.length);
+        row("pad ever seen", everSaw ? "YES" : "no — press a button on the pad", everSaw ? "y" : "m");
+        row("device(s)", lastIds.length ? lastIds.join("<br>") : "&mdash;");
+        row("samples with a pad", samples);
+        row("largest |axis| seen",
+            `<span class="bar" style="width:${Math.round(maxAxis * 90)}px"></span> ${maxAxis.toFixed(3)}`
+            + (maxAxis > 0.25 ? " — axes ARE updating" : ""),
+            maxAxis > 0.25 ? "y" : "");
+        render();
+
+        // Verdict: policy first, because it is the question that can kill the approach.
+        if (pol.supported && pol.allowed === false) {
+          setVerdict("fail", "BLOCKED — gamepad is not delegated to this frame",
+            "The embedder did not set allow=\"gamepad\". There is no workaround from inside the iframe; "
+            + "the integrated-app route cannot read a controller as designed.");
+        } else if (pol.supported && pol.allowed && maxAxis > 0.25) {
+          setVerdict("pass", "WORKS — policy allows it and axes are live",
+            "Both questions answered yes. Note the frame must hold focus; clicking the CAD viewport "
+            + "will still freeze updates.");
+        } else if (pol.supported && pol.allowed && everSaw) {
+          setVerdict("wait", "ALLOWED — pad visible, now move a stick",
+            "Policy permits gamepad here. Move a stick past 25% to confirm the frame receives live updates.");
+        } else if (pol.supported && pol.allowed) {
+          setVerdict("wait", "ALLOWED — now press a button on the controller",
+            "Policy permits gamepad here. Chrome only reveals a pad after a button press on that device, "
+            + "and this frame must be focused — click inside it first.");
+        } else {
+          setVerdict("wait", "Checking…", "If this persists, featurePolicy is unavailable — check the table below.");
+        }
+
+        el("dump").textContent = JSON.stringify({
+          when: new Date().toISOString(),
+          inIframe, origin: location.origin, secureContext: window.isSecureContext,
+          referrer: document.referrer || null,
+          featurePolicySupported: pol.supported,
+          gamepadAllowed: pol.allowed,
+          gamepadIsKnownFeature: pol.known,
+          hasFocus: document.hasFocus(),
+          padsNow: live.length, everSawPad: everSaw, devices: lastIds,
+          samplesWithPad: samples, maxAxisSeen: Number(maxAxis.toFixed(4)),
+          userAgent: navigator.userAgent,
+        }, null, 2);
+      }
+
+      el("copy").addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(el("dump").textContent); el("copy").textContent = "Copied"; }
+        catch { el("copy").textContent = "Select the text below"; }
+        setTimeout(() => (el("copy").textContent = "Copy diagnostic"), 1800);
+      });
+
+      addEventListener("gamepadconnected", () => {});
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>

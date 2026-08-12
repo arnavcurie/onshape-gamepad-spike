@@ -1,0 +1,4 @@
+# nothing secret should ever live here — this repo is PUBLIC so that
+# GitHub Pages can serve the spike over https for Onshape's iframe.
+.env
+*.log
