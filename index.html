@@ -96,6 +96,15 @@
       const rows = [];
       let everSaw = false, maxAxis = 0, samples = 0, lastIds = [];
 
+      // Question 3, and the one that decides whether being inside Onshape beats
+      // the localhost bridge: does the frame still receive axis updates once the
+      // user clicks the CAD viewport and this frame loses focus?
+      //
+      // It has to be recorded rather than observed, because reading the result
+      // requires clicking back into the frame — which restores focus and destroys
+      // the state being measured.
+      let blurTicks = 0, blurPadTicks = 0, blurMaxAxis = 0, blurEverPad = false;
+
       const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
 
       function policyState() {
@@ -122,6 +131,7 @@
 
       function tick() {
         requestAnimationFrame(tick);
+        const focused = document.hasFocus();
         const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
         const live = pads.filter((p) => p && p.connected);
         if (live.length) {
@@ -129,6 +139,14 @@
           lastIds = live.map((p) => `${p.id} [${p.mapping || "no mapping"}, ${p.axes.length} axes]`);
           for (const p of live) for (const a of p.axes) maxAxis = Math.max(maxAxis, Math.abs(a));
           samples++;
+        }
+        if (!focused) {
+          blurTicks++;
+          if (live.length) {
+            blurPadTicks++;
+            blurEverPad = true;
+            for (const p of live) for (const a of p.axes) blurMaxAxis = Math.max(blurMaxAxis, Math.abs(a));
+          }
         }
 
         const pol = policyState();
@@ -150,6 +168,20 @@
             `<span class="bar" style="width:${Math.round(maxAxis * 90)}px"></span> ${maxAxis.toFixed(3)}`
             + (maxAxis > 0.25 ? " — axes ARE updating" : ""),
             maxAxis > 0.25 ? "y" : "");
+
+        // --- blur test -------------------------------------------------------
+        row("&mdash; BLUR TEST &mdash;",
+            blurTicks === 0
+              ? "not run yet: click the CAD viewport, waggle a stick, click back here"
+              : `${blurTicks} ticks while unfocused`, "m");
+        row("pad visible while unfocused",
+            blurTicks === 0 ? "&mdash;" : (blurEverPad ? `YES (${blurPadTicks} ticks)` : "NO — went blind"),
+            blurTicks === 0 ? "" : (blurEverPad ? "y" : "n"));
+        row("largest |axis| while unfocused",
+            blurTicks === 0 ? "&mdash;"
+              : `${blurMaxAxis.toFixed(3)}` + (blurMaxAxis > 0.25
+                  ? " — INPUT WORKS UNFOCUSED" : " — frozen, focus is required"),
+            blurTicks === 0 ? "" : (blurMaxAxis > 0.25 ? "y" : "n"));
         render();
 
         // Verdict: policy first, because it is the question that can kill the approach.
@@ -182,6 +214,16 @@
           hasFocus: document.hasFocus(),
           padsNow: live.length, everSawPad: everSaw, devices: lastIds,
           samplesWithPad: samples, maxAxisSeen: Number(maxAxis.toFixed(4)),
+          blurTest: {
+            ran: blurTicks > 0,
+            ticksWhileUnfocused: blurTicks,
+            ticksWithPadWhileUnfocused: blurPadTicks,
+            maxAxisWhileUnfocused: Number(blurMaxAxis.toFixed(4)),
+            verdict: blurTicks === 0 ? "not run"
+              : blurMaxAxis > 0.25 ? "INPUT WORKS WHILE UNFOCUSED"
+              : blurPadTicks > 0 ? "pad visible but axes frozen"
+              : "went blind while unfocused",
+          },
           userAgent: navigator.userAgent,
         }, null, 2);
       }
