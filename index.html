@@ -3,295 +3,441 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Gamepad-in-iframe spike</title>
+    <title>Xbox Controller — Onshape</title>
     <style>
-      :root { color-scheme: light dark; }
+      /* Onshape brand palette, so the panel sits inside the product rather than
+         next to it. Cobalt #0A3AA1, green-blue #1B5FAA, baby blue #90CEF1,
+         mikado #FFC20E. */
+      :root {
+        --cobalt: #0A3AA1;
+        --blue:   #1B5FAA;
+        --sky:    #90CEF1;
+        --yellow: #FFC20E;
+        --ink:    #16202C;
+        --muted:  #5C6B7C;
+        --faint:  #8B98A6;
+        --paper:  #FFFFFF;
+        --panel:  #F2F6FA;
+        --rule:   #D8E1EA;
+        --ok:     #14683F;
+        --ok-bg:  #E3F3EA;
+        --bad:    #A3271F;
+        --bad-bg: #FAE7E5;
+        --warn:   #8A5A0B;
+        --warn-bg:#FFF3D6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --ink: #E6ECF3; --muted: #93A1B0; --faint: #74818F;
+          --paper: #161C24; --panel: #1C242E; --rule: #2A3540;
+          --blue: #6FA8E6; --sky: #4E7FB5; --cobalt: #86B4F0;
+          --ok: #62D69C; --ok-bg: #10301F; --bad: #FF8C86; --bad-bg: #3A1A18;
+          --warn: #F0C674; --warn-bg: #33280F;
+        }
+      }
+
       * { box-sizing: border-box; }
       body {
-        margin: 0; padding: 1.1rem;
-        font: 14px/1.5 ui-sans-serif, "Segoe UI", system-ui, sans-serif;
-        background: #11151a; color: #e6ecf2;
+        margin: 0; padding: .75rem;
+        font: 13px/1.45 ui-sans-serif, "Segoe UI", system-ui, sans-serif;
+        color: var(--ink); background: var(--panel);
       }
-      h1 { font-size: 1rem; margin: 0 0 .9rem; font-weight: 600; letter-spacing: .01em; }
-      h1 span { color: #7c8794; font-weight: 400; }
-
-      #verdict {
-        padding: .9rem 1.1rem; border-radius: 8px; margin-bottom: 1rem;
-        font-size: 1.05rem; font-weight: 600; border: 1px solid;
+      h1 { font-size: .82rem; margin: 0 0 .55rem; font-weight: 600; letter-spacing: .01em; }
+      h1 b { color: var(--blue); }
+      h2 {
+        font-size: .64rem; letter-spacing: .13em; text-transform: uppercase;
+        color: var(--faint); margin: 1rem 0 .45rem; font-weight: 600;
       }
-      .pass { background: #10301f; border-color: #2f7f57; color: #7ee2a8; }
-      .fail { background: #3a1a1a; border-color: #8d3a3a; color: #ff9a9a; }
-      .wait { background: #33280f; border-color: #8a6a1e; color: #f0c674; }
-      #verdict small { display: block; font-weight: 400; font-size: .8rem; margin-top: .35rem; opacity: .85; }
 
-      table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
-      td { padding: .38rem .55rem; border-bottom: 1px solid #232a33; vertical-align: top;
-           font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
-      td.k { color: #808b99; width: 15rem; }
-      .y { color: #7ee2a8; } .n { color: #ff9a9a; } .m { color: #f0c674; }
+      #status {
+        padding: .5rem .7rem; border-radius: 6px; font-size: 12px;
+        border: 1px solid var(--rule); background: var(--paper); margin-bottom: .6rem;
+      }
+      #status.ok   { color: var(--ok);   border-color: var(--ok);   background: var(--ok-bg); }
+      #status.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-bg); }
+      #status.bad  { color: var(--bad);  border-color: var(--bad);  background: var(--bad-bg); }
 
-      .bar { display: inline-block; height: 7px; background: #4c8dff; border-radius: 4px; vertical-align: middle; }
+      .card { background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: .6rem; }
+      svg { display: block; width: 100%; height: auto; }
+      .shell { fill: var(--panel); stroke: var(--rule); stroke-width: 1.4; }
+      .well  { fill: var(--panel); stroke: var(--rule); }
+      .cap   { fill: var(--sky); stroke: var(--blue); transition: transform .05s linear; }
+      .btn   { fill: var(--panel); stroke: var(--rule); transition: fill .07s, stroke .07s; }
+      .btn.on{ fill: var(--blue); stroke: var(--cobalt); }
+      #b4.on { fill: var(--ok);   stroke: var(--ok); }
+      #b8.on { fill: var(--yellow); stroke: var(--warn); }
+      .lbl   { fill: var(--faint); font: 600 9px ui-monospace, Consolas, monospace; text-anchor: middle; }
+      .trigbg{ fill: var(--panel); stroke: var(--rule); }
+      .trigfill { fill: var(--blue); transition: width .05s linear; }
+      /* An axis that is bound gets a mikado ring — the map is visible on the pad. */
+      .boundring { fill: none; stroke: var(--yellow); stroke-width: 2.5; opacity: 0; }
+      .boundring.on { opacity: 1; }
+
+      table { border-collapse: collapse; width: 100%; font-size: 12px; }
+      th {
+        text-align: left; font-size: .6rem; letter-spacing: .09em; text-transform: uppercase;
+        color: var(--faint); font-weight: 600; padding: .3rem .3rem; border-bottom: 1px solid var(--rule);
+        white-space: nowrap;
+      }
+      td { padding: .22rem .3rem; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+      td.src { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); white-space: nowrap; }
+      td.live {
+        font-family: ui-monospace, Consolas, monospace; text-align: right;
+        font-variant-numeric: tabular-nums; white-space: nowrap;
+      }
+      tr.active td.live { color: var(--blue); font-weight: 600; }
+      tr.unbound td:not(.src) { opacity: .5; }
+
+      input, select {
+        font: inherit; font-size: 12px; padding: .18rem .3rem; width: 100%;
+        border: 1px solid var(--rule); border-radius: 4px;
+        background: var(--paper); color: var(--ink);
+      }
+      input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+      input.num { text-align: right; font-family: ui-monospace, Consolas, monospace; }
+      input.bad { border-color: var(--bad); background: var(--bad-bg); }
+
+      .row { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-top: .6rem; }
       button {
-        font: inherit; padding: .45rem .9rem; border-radius: 6px; cursor: pointer;
-        background: #1b222b; color: #e6ecf2; border: 1px solid #333d49;
+        font: inherit; font-size: 12px; padding: .35rem .7rem; border-radius: 6px; cursor: pointer;
+        border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
       }
-      button:hover { border-color: #4c8dff; color: #9ccbff; }
-      pre {
-        background: #0c1014; border: 1px solid #232a33; border-radius: 6px;
-        padding: .7rem .85rem; font-size: 11px; overflow-x: auto; white-space: pre-wrap;
-        color: #b9c4d0; margin: .6rem 0 0;
-      }
-      .hint { color: #808b99; font-size: 11.5px; margin-top: .9rem; }
+      button:hover { border-color: var(--blue); color: var(--blue); }
+      button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+      button.primary:hover { background: var(--cobalt); border-color: var(--cobalt); color: #fff; }
+      button:focus-visible { outline: 2px solid var(--yellow); outline-offset: 1px; }
 
-      /* An Onshape "Element right panel" is a narrow strip. Stack each check
-         onto its own line rather than letting a fixed label column squeeze the
-         value into unreadable wrapping — a mangled layout here would be easy to
-         misread as a failed check. */
-      @media (max-width: 560px) {
-        body { padding: .7rem; }
-        h1 { font-size: .9rem; }
-        h1 span { display: none; }
-        #verdict { font-size: .92rem; padding: .7rem .8rem; }
-        table, tbody, tr, td { display: block; width: 100%; }
-        tr { border-bottom: 1px solid #232a33; padding: .3rem 0; }
-        td { border: 0; padding: 0; }
-        td.k { width: auto; font-size: 10.5px; text-transform: uppercase;
-               letter-spacing: .06em; color: #6d7783; }
-        pre { font-size: 10px; }
+      .hint { color: var(--faint); font-size: 11px; margin: .55rem 0 0; }
+      .hint code { font-family: ui-monospace, Consolas, monospace; }
+      .pill {
+        display: inline-block; padding: .08rem .38rem; border-radius: 99px; font-size: 10px;
+        font-family: ui-monospace, Consolas, monospace; border: 1px solid var(--rule); color: var(--muted);
+      }
+      .pill.on { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+      .banner {
+        margin-top: .8rem; padding: .5rem .7rem; border-radius: 6px; font-size: 11.5px;
+        border: 1px solid var(--rule); border-left: 3px solid var(--yellow);
+        background: var(--paper); color: var(--muted);
       }
     </style>
   </head>
   <body>
-    <h1>Gamepad-in-iframe spike <span>&mdash; can an Onshape app tab see a controller?</span></h1>
+    <h1><b>Xbox Controller</b> &mdash; joint bindings</h1>
+    <div id="status" class="warn">Press any button on the controller&hellip;</div>
 
-    <div id="verdict" class="wait">Checking&hellip;</div>
+    <div class="card">
+      <svg viewBox="0 0 420 250" role="img" aria-label="Controller state">
+        <rect class="trigbg" x="78" y="10" width="58" height="13" rx="6.5" />
+        <rect class="trigfill" id="ltFill" x="79" y="11" width="0" height="11" rx="5.5" />
+        <text class="lbl" x="107" y="7">LT</text>
+        <circle class="boundring" id="ring-leftTrigger" cx="107" cy="16.5" r="16" />
+        <rect class="trigbg" x="284" y="10" width="58" height="13" rx="6.5" />
+        <rect class="trigfill" id="rtFill" x="285" y="11" width="0" height="11" rx="5.5" />
+        <text class="lbl" x="313" y="7">RT</text>
+        <circle class="boundring" id="ring-rightTrigger" cx="313" cy="16.5" r="16" />
 
-    <table id="checks"></table>
+        <rect class="btn" id="b4" x="82" y="32" width="54" height="13" rx="6.5" />
+        <text class="lbl" x="109" y="41">LB</text>
+        <rect class="btn" id="b5" x="284" y="32" width="54" height="13" rx="6.5" />
+        <text class="lbl" x="311" y="41">RB</text>
 
-    <button id="copy">Copy diagnostic</button>
-    <pre id="dump">&hellip;</pre>
+        <path class="shell" d="M 96 74 C 130 56, 180 50, 210 50 C 240 50, 290 56, 324 74
+          C 360 92, 392 124, 400 164 C 406 196, 396 230, 372 242
+          C 348 254, 322 242, 304 218 C 288 196, 268 186, 240 186
+          L 180 186 C 152 186, 132 196, 116 218
+          C 98 242, 72 254, 48 242 C 24 230, 14 196, 20 164
+          C 28 124, 60 92, 96 74 Z" />
+
+        <circle class="well" cx="135" cy="104" r="24" />
+        <circle class="boundring" id="ring-leftStick" cx="135" cy="104" r="28" />
+        <g id="lsWrap"><circle class="cap" id="ls" cx="135" cy="104" r="16" /></g>
+        <circle class="btn" id="b10" cx="135" cy="104" r="5.5" />
+
+        <circle class="well" cx="248" cy="158" r="24" />
+        <circle class="boundring" id="ring-rightStick" cx="248" cy="158" r="28" />
+        <g id="rsWrap"><circle class="cap" id="rs" cx="248" cy="158" r="16" /></g>
+        <circle class="btn" id="b11" cx="248" cy="158" r="5.5" />
+
+        <rect class="btn" id="b12" x="167" y="136" width="13" height="13" rx="3" />
+        <rect class="btn" id="b13" x="167" y="164" width="13" height="13" rx="3" />
+        <rect class="btn" id="b14" x="153" y="150" width="13" height="13" rx="3" />
+        <rect class="btn" id="b15" x="181" y="150" width="13" height="13" rx="3" />
+
+        <circle class="btn" id="b3" cx="300" cy="86"  r="10.5" /><text class="lbl" x="300" y="90">Y</text>
+        <circle class="btn" id="b1" cx="319" cy="105" r="10.5" /><text class="lbl" x="319" y="109">B</text>
+        <circle class="btn" id="b0" cx="300" cy="124" r="10.5" /><text class="lbl" x="300" y="128">A</text>
+        <circle class="btn" id="b2" cx="281" cy="105" r="10.5" /><text class="lbl" x="281" y="109">X</text>
+
+        <circle class="btn" id="b16" cx="210" cy="94" r="11" /><text class="lbl" x="210" y="98">G</text>
+        <circle class="btn" id="b8"  cx="180" cy="104" r="7.5" />
+        <circle class="btn" id="b9"  cx="240" cy="104" r="7.5" />
+        <text class="lbl" x="180" y="122" style="font-size:7px">BACK</text>
+        <text class="lbl" x="240" y="122" style="font-size:7px">START</text>
+      </svg>
+    </div>
+
+    <h2>Bindings</h2>
+    <div style="overflow-x:auto">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>Input</th><th>Joint (mate name)</th><th>Mode</th>
+            <th title="Degrees per second at full deflection. Ignored in position mode.">Rate</th>
+            <th>Min&deg;</th><th>Max&deg;</th><th title="Flip direction">Inv</th><th>Commanded</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="row">
+      <button id="save" class="primary">Save bindings</button>
+      <button id="reset">Reset all to 0&deg;</button>
+      <button id="clear">Clear</button>
+      <span id="saved" class="pill">not saved</span>
+    </div>
+
+    <div class="banner" id="notmoving">
+      <b>Nothing is being sent to Onshape yet.</b> This panel reads the controller and shows
+      what it <i>would</i> command. Driving the model needs a hosted service to hold the
+      OAuth secret and proxy the API &mdash; the browser cannot call Onshape directly
+      (no CORS, and the token exchange requires a client secret).
+    </div>
 
     <p class="hint">
-      The Permissions&nbsp;Policy answer does <b>not</b> need a controller connected — it is
-      reported by the browser directly. The live readout below it is the second question:
-      whether a focused iframe actually receives axis updates.
+      Type the mate name exactly as Onshape reports it, e.g. <code>Revolute_UpperArm_ForeArm</code>.
+      <b>Rate</b> integrates deflection as speed &mdash; right for sticks, which self-centre.
+      <b>Position</b> maps the control's travel straight onto Min&hellip;Max &mdash; only right
+      for a trigger, which stays where you put it. Hold <b>LB</b> for anything to move.
     </p>
 
     <script>
-      // Two independent questions, and they can disagree:
-      //
-      //   1. Is the `gamepad` Permissions Policy feature delegated to this frame?
-      //      The feature defaults to `self`, so a cross-origin iframe only gets it
-      //      if the embedder sets allow="gamepad". document.featurePolicy answers
-      //      this immediately, with no controller and no user gesture.
-      //
-      //   2. Even if allowed, does the frame receive live updates? Chrome only
-      //      refreshes gamepad state for the FOCUSED document, and a frame has to
-      //      hold focus itself — clicking the CAD viewport would take it away.
-      //
-      // Question 1 decides whether the integrated-app route is viable at all.
-      // Question 2 decides whether it is actually nicer than the localhost bridge.
+      // Client-side only, by necessity: Onshape's token exchange requires a
+      // client_secret (so it cannot happen in a browser) and the API sends no
+      // CORS headers (so the browser cannot call it even holding a token).
+      // Both were measured, not assumed. This panel therefore does input,
+      // bindings and integration; a hosted service will do auth and writes.
 
-      const el = (id) => document.getElementById(id);
-      const rows = [];
-      let everSaw = false, maxAxis = 0, samples = 0, lastIds = [];
+      const SOURCES = [
+        { id: "leftStickX",   label: "left stick X",  kind: "stick",   ring: "ring-leftStick"  },
+        { id: "leftStickY",   label: "left stick Y",  kind: "stick",   ring: "ring-leftStick"  },
+        { id: "rightStickX",  label: "right stick X", kind: "stick",   ring: "ring-rightStick" },
+        { id: "rightStickY",  label: "right stick Y", kind: "stick",   ring: "ring-rightStick" },
+        { id: "leftTrigger",  label: "left trigger",  kind: "trigger", ring: "ring-leftTrigger"  },
+        { id: "rightTrigger", label: "right trigger", kind: "trigger", ring: "ring-rightTrigger" },
+      ];
 
-      // Question 3, and the one that decides whether being inside Onshape beats
-      // the localhost bridge: does the frame still receive axis updates once the
-      // user clicks the CAD viewport and this frame loses focus?
-      //
-      // It has to be recorded rather than observed, because reading the result
-      // requires clicking back into the frame — which restores focus and destroys
-      // the state being measured.
-      let blurTicks = 0, blurPadTicks = 0, blurMaxAxis = 0, blurEverPad = false;
+      // Per-control, not global: sticks here have a loose centre, triggers rest
+      // hard against zero and a wide band would only cost usable travel.
+      const DEADZONE = { stick: 0.2, trigger: 0.12 };
+      const ENABLE_BUTTON = 4;   // LB — deadman
+      const HOME_BUTTON = 8;     // Back
+      const HOME_RATE = 30;      // deg/s
+      const HOME_TOL = 0.05;
+      const MAX_DT = 0.1;        // clamp sample gaps
+      const STORE = "onshape-xbox-bindings-v1";
 
-      const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+      const DEFAULT = () => ({ joint: "", mode: "rate", rate: 45, min: -90, max: 90, invert: false });
 
-      function policyState() {
-        const fp = document.featurePolicy || document.permissionsPolicy;
-        if (!fp || typeof fp.allowsFeature !== "function") return { supported: false, allowed: null };
-        let known = true;
-        try { known = fp.features().includes("gamepad"); } catch { known = true; }
-        return { supported: true, allowed: fp.allowsFeature("gamepad"), known };
+      const $ = (id) => document.getElementById(id);
+      const bindings = {};
+      const commanded = {};
+      SOURCES.forEach((s) => { bindings[s.id] = DEFAULT(); commanded[s.id] = 0; });
+
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORE) || "null");
+        if (saved) for (const s of SOURCES) if (saved[s.id]) Object.assign(bindings[s.id], saved[s.id]);
+      } catch { /* corrupt store — fall back to defaults rather than dying */ }
+
+      // ---- table ----------------------------------------------------------
+      const tbody = document.querySelector("#tbl tbody");
+      for (const s of SOURCES) {
+        const b = bindings[s.id];
+        const tr = document.createElement("tr");
+        tr.id = "row-" + s.id;
+        tr.innerHTML = `
+          <td class="src">${s.label}</td>
+          <td><input data-f="joint" placeholder="mate name" value="${b.joint.replace(/"/g, "&quot;")}"></td>
+          <td><select data-f="mode">
+                <option value="rate">rate</option>
+                <option value="position">position</option>
+              </select></td>
+          <td><input data-f="rate" class="num" type="number" step="5" value="${b.rate}"></td>
+          <td><input data-f="min" class="num" type="number" step="5" value="${b.min}"></td>
+          <td><input data-f="max" class="num" type="number" step="5" value="${b.max}"></td>
+          <td style="text-align:center"><input data-f="invert" type="checkbox" style="width:auto" ${b.invert ? "checked" : ""}></td>
+          <td class="live" id="live-${s.id}">&mdash;</td>`;
+        tbody.appendChild(tr);
+
+        tr.querySelector('[data-f="mode"]').value = b.mode;
+        tr.querySelectorAll("[data-f]").forEach((inp) => {
+          inp.addEventListener("input", () => {
+            const f = inp.dataset.f;
+            b[f] = inp.type === "checkbox" ? inp.checked
+                 : (f === "joint" || f === "mode") ? inp.value
+                 : Number(inp.value);
+            markDirty();
+            validate(s.id);
+          });
+        });
       }
 
-      function row(k, v, cls) { rows.push([k, v, cls || ""]); }
-
-      function render() {
-        el("checks").innerHTML = rows
-          .map(([k, v, c]) => `<tr><td class="k">${k}</td><td class="${c}">${v}</td></tr>`)
-          .join("");
+      // Position mode is only meaningful on a control that stays put. A stick
+      // returns to centre, so a position-mapped stick would snap the joint back
+      // every time you let go — flag it rather than let it be configured quietly.
+      function validate(id) {
+        const s = SOURCES.find((x) => x.id === id);
+        const b = bindings[id];
+        const tr = $("row-" + id);
+        const modeEl = tr.querySelector('[data-f="mode"]');
+        const minEl = tr.querySelector('[data-f="min"]');
+        const maxEl = tr.querySelector('[data-f="max"]');
+        const badMode = b.mode === "position" && s.kind === "stick";
+        const badRange = !(b.max > b.min);
+        modeEl.classList.toggle("bad", badMode);
+        modeEl.title = badMode ? "Position mode on a self-centring stick will snap back to centre. Use rate." : "";
+        minEl.classList.toggle("bad", badRange);
+        maxEl.classList.toggle("bad", badRange);
+        tr.classList.toggle("unbound", !b.joint.trim());
       }
+      SOURCES.forEach((s) => validate(s.id));
 
-      function setVerdict(cls, text, sub) {
-        const v = el("verdict");
-        v.className = cls;
-        v.innerHTML = text + (sub ? `<small>${sub}</small>` : "");
-      }
-
-      function tick() {
-        requestAnimationFrame(tick);
-        const focused = document.hasFocus();
-        const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
-        const live = pads.filter((p) => p && p.connected);
-        if (live.length) {
-          everSaw = true;
-          lastIds = live.map((p) => `${p.id} [${p.mapping || "no mapping"}, ${p.axes.length} axes]`);
-          for (const p of live) for (const a of p.axes) maxAxis = Math.max(maxAxis, Math.abs(a));
-          samples++;
-        }
-        if (!focused) {
-          blurTicks++;
-          if (live.length) {
-            blurPadTicks++;
-            blurEverPad = true;
-            for (const p of live) for (const a of p.axes) blurMaxAxis = Math.max(blurMaxAxis, Math.abs(a));
-          }
-        }
-
-        const pol = policyState();
-        rows.length = 0;
-        row("in an iframe", inIframe ? "YES" : "no — open this inside Onshape", inIframe ? "y" : "m");
-        row("this origin", location.origin);
-        row("secure context", window.isSecureContext ? "YES" : "NO — https required", window.isSecureContext ? "y" : "n");
-        row("featurePolicy API", pol.supported ? "available" : "NOT available (non-Chromium?)", pol.supported ? "y" : "m");
-        row("gamepad allowed here",
-            pol.supported ? (pol.allowed ? "YES — embedder delegated it" : "NO — embedder did not set allow=\"gamepad\"") : "unknown",
-            pol.supported ? (pol.allowed ? "y" : "n") : "m");
-        row("navigator.getGamepads", navigator.getGamepads ? "present" : "absent", navigator.getGamepads ? "y" : "n");
-        row("document.hasFocus()", document.hasFocus() ? "YES" : "no — click this frame", document.hasFocus() ? "y" : "m");
-        row("pads visible now", live.length);
-        row("pad ever seen", everSaw ? "YES" : "no — press a button on the pad", everSaw ? "y" : "m");
-        row("device(s)", lastIds.length ? lastIds.join("<br>") : "&mdash;");
-        row("samples with a pad", samples);
-        row("largest |axis| seen",
-            `<span class="bar" style="width:${Math.round(maxAxis * 90)}px"></span> ${maxAxis.toFixed(3)}`
-            + (maxAxis > 0.25 ? " — axes ARE updating" : ""),
-            maxAxis > 0.25 ? "y" : "");
-
-        // --- blur test -------------------------------------------------------
-        row("&mdash; BLUR TEST &mdash;",
-            blurTicks === 0
-              ? "not run yet: click the CAD viewport, waggle a stick, click back here"
-              : `${blurTicks} ticks while unfocused`, "m");
-        row("pad visible while unfocused",
-            blurTicks === 0 ? "&mdash;" : (blurEverPad ? `YES (${blurPadTicks} ticks)` : "NO — went blind"),
-            blurTicks === 0 ? "" : (blurEverPad ? "y" : "n"));
-        row("largest |axis| while unfocused",
-            blurTicks === 0 ? "&mdash;"
-              : `${blurMaxAxis.toFixed(3)}` + (blurMaxAxis > 0.25
-                  ? " — INPUT WORKS UNFOCUSED" : " — frozen, focus is required"),
-            blurTicks === 0 ? "" : (blurMaxAxis > 0.25 ? "y" : "n"));
-        render();
-
-        // Verdict: policy first, because it is the question that can kill the approach.
-        if (pol.supported && pol.allowed === false) {
-          setVerdict("fail", "BLOCKED — gamepad is not delegated to this frame",
-            "The embedder did not set allow=\"gamepad\". There is no workaround from inside the iframe; "
-            + "the integrated-app route cannot read a controller as designed.");
-        } else if (pol.supported && pol.allowed && maxAxis > 0.25) {
-          setVerdict("pass", "WORKS — policy allows it and axes are live",
-            "Both questions answered yes. Note the frame must hold focus; clicking the CAD viewport "
-            + "will still freeze updates.");
-        } else if (pol.supported && pol.allowed && everSaw) {
-          setVerdict("wait", "ALLOWED — pad visible, now move a stick",
-            "Policy permits gamepad here. Move a stick past 25% to confirm the frame receives live updates.");
-        } else if (pol.supported && pol.allowed) {
-          setVerdict("wait", "ALLOWED — now press a button on the controller",
-            "Policy permits gamepad here. Chrome only reveals a pad after a button press on that device, "
-            + "and this frame must be focused — click inside it first.");
-        } else {
-          setVerdict("wait", "Checking…", "If this persists, featurePolicy is unavailable — check the table below.");
-        }
-
-        setDump(JSON.stringify({
-          when: new Date().toISOString(),
-          inIframe, origin: location.origin, secureContext: window.isSecureContext,
-          referrer: document.referrer || null,
-          featurePolicySupported: pol.supported,
-          gamepadAllowed: pol.allowed,
-          gamepadIsKnownFeature: pol.known,
-          hasFocus: document.hasFocus(),
-          padsNow: live.length, everSawPad: everSaw, devices: lastIds,
-          samplesWithPad: samples, maxAxisSeen: Number(maxAxis.toFixed(4)),
-          blurTest: {
-            ran: blurTicks > 0,
-            ticksWhileUnfocused: blurTicks,
-            ticksWithPadWhileUnfocused: blurPadTicks,
-            maxAxisWhileUnfocused: Number(blurMaxAxis.toFixed(4)),
-            verdict: blurTicks === 0 ? "not run"
-              : blurMaxAxis > 0.25 ? "INPUT WORKS WHILE UNFOCUSED"
-              : blurPadTicks > 0 ? "pad visible but axes frozen"
-              : "went blind while unfocused",
-          },
-          userAgent: navigator.userAgent,
-        }, null, 2));
-      }
-
-      // The dump was being rewritten every animation frame, which destroyed any
-      // selection ~60 times a second — that is why selecting it by hand was
-      // hopeless. Rewrite it only when the text actually changes, and never
-      // while the user has a selection inside it.
-      let lastDump = "";
-      function setDump(text) {
-        if (text === lastDump) return;
-        const sel = window.getSelection();
-        if (sel && !sel.isCollapsed && sel.rangeCount) {
-          const node = sel.getRangeAt(0).commonAncestorContainer;
-          const host = node.nodeType === 1 ? node : node.parentNode;
-          if (host && el("dump").contains(host)) return;   // leave the selection alone
-        }
-        lastDump = text;
-        el("dump").textContent = text;
-      }
-
-      // Copying from inside a cross-origin iframe is awkward: the async Clipboard
-      // API needs `clipboard-write` delegated via Permissions Policy, and Onshape
-      // grants `gamepad` but not that. So try three routes, best first, and fall
-      // back to selecting the text so Ctrl+C is a single keystroke rather than a
-      // drag through a narrow panel.
-      async function copyText(text) {
-        try {
-          if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(text);
-            return "Copied";
-          }
-        } catch { /* delegation refused — fall through */ }
-
-        // Legacy path: execCommand on a real, focused, selected textarea. Still
-        // works inside a user gesture in frames where the async API is blocked.
-        try {
-          const ta = document.createElement("textarea");
-          ta.value = text;
-          ta.setAttribute("readonly", "");
-          ta.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;";
-          document.body.appendChild(ta);
-          ta.focus();
-          ta.select();
-          ta.setSelectionRange(0, text.length);
-          const ok = document.execCommand("copy");
-          document.body.removeChild(ta);
-          if (ok) return "Copied";
-        } catch { /* fall through */ }
-
-        // Last resort: select the dump so the user only has to press Ctrl+C.
-        try {
-          const r = document.createRange();
-          r.selectNodeContents(el("dump"));
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(r);
-          return "Selected — press Ctrl+C";
-        } catch { return "Copy failed"; }
-      }
-
-      el("copy").addEventListener("click", async () => {
-        const btn = el("copy");
-        btn.textContent = await copyText(el("dump").textContent);
-        setTimeout(() => (btn.textContent = "Copy diagnostic"), 2200);
+      let dirty = false;
+      function markDirty() { dirty = true; $("saved").textContent = "unsaved"; $("saved").classList.remove("on"); }
+      $("save").addEventListener("click", () => {
+        localStorage.setItem(STORE, JSON.stringify(bindings));
+        dirty = false; $("saved").textContent = "saved"; $("saved").classList.add("on");
       });
+      $("reset").addEventListener("click", () => { for (const s of SOURCES) commanded[s.id] = 0; });
+      $("clear").addEventListener("click", () => {
+        if (!confirm("Clear every binding?")) return;
+        for (const s of SOURCES) {
+          Object.assign(bindings[s.id], DEFAULT());
+          const tr = $("row-" + s.id);
+          tr.querySelector('[data-f="joint"]').value = "";
+          tr.querySelector('[data-f="mode"]').value = "rate";
+          tr.querySelector('[data-f="rate"]').value = 45;
+          tr.querySelector('[data-f="min"]').value = -90;
+          tr.querySelector('[data-f="max"]').value = 90;
+          tr.querySelector('[data-f="invert"]').checked = false;
+          validate(s.id);
+        }
+        markDirty();
+      });
+      addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 
-      addEventListener("gamepadconnected", () => {});
+      // ---- pad ------------------------------------------------------------
+      // Not every "gamepad" is one: a Jabra speakerphone enumerates as a pad
+      // with 0 axes and can sort ahead of the real controller. Require 4 axes.
+      function pickPad() {
+        const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
+        const usable = pads.filter((p) => p && p.connected && p.axes.length >= 4);
+        return usable.find((p) => p.mapping === "standard") || usable[0] || null;
+      }
+
+      function deadzone(v, kind) {
+        const t = DEADZONE[kind];
+        if (Math.abs(v) < t) return 0;
+        return (v - Math.sign(v) * t) / (1 - t);   // rescale, so full travel still reaches 1
+      }
+      const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+      function raw(pad, s) {
+        switch (s.id) {
+          case "leftStickX":   return pad.axes[0] ?? 0;
+          case "leftStickY":   return pad.axes[1] ?? 0;
+          case "rightStickX":  return pad.axes[2] ?? 0;
+          case "rightStickY":  return pad.axes[3] ?? 0;
+          case "leftTrigger":  return pad.buttons[6]?.value ?? 0;
+          case "rightTrigger": return pad.buttons[7]?.value ?? 0;
+        }
+        return 0;
+      }
+
+      let last = 0, homing = false, homePrev = false, everPad = false, padName = "";
+
+      function setStatus(text, cls) { $("status").textContent = text; $("status").className = cls; }
+
+      function tick(now) {
+        requestAnimationFrame(tick);
+        const pad = pickPad();
+
+        if (!pad) {
+          setStatus(everPad ? "Controller disconnected." : "Press any button on the controller…", everPad ? "bad" : "warn");
+          last = 0;
+          return;
+        }
+        if (!everPad) { everPad = true; padName = pad.id; }
+
+        const enabled = pad.buttons[ENABLE_BUTTON]?.pressed ?? false;
+        const homeDown = pad.buttons[HOME_BUTTON]?.pressed ?? false;
+
+        // Home must not bypass the deadman: it is the largest motion the arm
+        // makes, and a "go home" that fired with the pad on a desk is the one
+        // most likely to swing it through something.
+        if (enabled && homeDown && !homePrev && !homing) homing = true;
+        homePrev = homeDown;
+        if (!enabled && homing) homing = false;
+
+        const dt = last === 0 ? 0 : Math.min((now - last) / 1000, MAX_DT);
+        last = now;
+
+        // A held trigger is a steady state, not a movement — position-mode
+        // controls must not cancel a homing run or a closed grip would make
+        // homing the arm impossible without letting go.
+        if (homing && SOURCES.some((s) => bindings[s.id].mode !== "position" &&
+              deadzone(raw(pad, s), s.kind) !== 0)) homing = false;
+
+        let allHome = true;
+        for (const s of SOURCES) {
+          const b = bindings[s.id];
+          const bound = !!b.joint.trim();
+          const lo = Math.min(b.min, b.max), hi = Math.max(b.min, b.max);
+          let v = deadzone(raw(pad, s), s.kind);
+          let next = commanded[s.id];
+
+          if (bound && enabled) {
+            if (b.mode === "position") {
+              const t = clamp(b.invert ? 1 - Math.abs(v) : Math.abs(v), 0, 1);
+              next = lo + t * (hi - lo);
+            } else if (homing) {
+              const remaining = 0 - commanded[s.id];
+              if (Math.abs(remaining) <= HOME_TOL) next = 0;
+              else { allHome = false; next = commanded[s.id] + Math.sign(remaining) * Math.min(HOME_RATE * dt, Math.abs(remaining)); }
+            } else {
+              if (b.invert) v = -v;
+              next = commanded[s.id] + v * (b.rate || 0) * dt;
+            }
+            next = clamp(next, lo, hi);
+          }
+          commanded[s.id] = next;
+
+          const cell = $("live-" + s.id);
+          cell.textContent = bound ? next.toFixed(2) + "°" : "—";
+          $("row-" + s.id).classList.toggle("active", bound && enabled && Math.abs(v) > 0);
+
+          const ring = $(s.ring);
+          if (ring) ring.classList.toggle("on", bound);
+        }
+        if (homing && allHome) homing = false;
+
+        // ---- diagram ----
+        const ax = (i) => pad.axes[i] ?? 0;
+        const move = (id, x, y) => { const e = $(id); if (e) e.setAttribute("transform", `translate(${x * 8} ${y * 8})`); };
+        move("lsWrap", ax(0), ax(1));
+        move("rsWrap", ax(2), ax(3));
+        $("ltFill").setAttribute("width", ((pad.buttons[6]?.value ?? 0) * 56).toFixed(1));
+        $("rtFill").setAttribute("width", ((pad.buttons[7]?.value ?? 0) * 56).toFixed(1));
+        for (let i = 0; i < 17; i++) {
+          const e = $("b" + i);
+          if (e) e.classList.toggle("on", pad.buttons[i]?.pressed ?? false);
+        }
+
+        const boundCount = SOURCES.filter((s) => bindings[s.id].joint.trim()).length;
+        if (homing) setStatus("Homing to 0° at " + HOME_RATE + "°/s — move a stick to cancel", "warn");
+        else if (enabled) setStatus(`Deadman held — ${boundCount} joint${boundCount === 1 ? "" : "s"} live`, "ok");
+        else setStatus(`${padName} — hold LB to move (LB+Back homes)`, "warn");
+      }
       requestAnimationFrame(tick);
     </script>
   </body>
