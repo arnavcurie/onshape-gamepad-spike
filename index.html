@@ -204,7 +204,7 @@
           setVerdict("wait", "Checking…", "If this persists, featurePolicy is unavailable — check the table below.");
         }
 
-        el("dump").textContent = JSON.stringify({
+        setDump(JSON.stringify({
           when: new Date().toISOString(),
           inIframe, origin: location.origin, secureContext: window.isSecureContext,
           referrer: document.referrer || null,
@@ -225,13 +225,70 @@
               : "went blind while unfocused",
           },
           userAgent: navigator.userAgent,
-        }, null, 2);
+        }, null, 2));
+      }
+
+      // The dump was being rewritten every animation frame, which destroyed any
+      // selection ~60 times a second — that is why selecting it by hand was
+      // hopeless. Rewrite it only when the text actually changes, and never
+      // while the user has a selection inside it.
+      let lastDump = "";
+      function setDump(text) {
+        if (text === lastDump) return;
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed && sel.rangeCount) {
+          const node = sel.getRangeAt(0).commonAncestorContainer;
+          const host = node.nodeType === 1 ? node : node.parentNode;
+          if (host && el("dump").contains(host)) return;   // leave the selection alone
+        }
+        lastDump = text;
+        el("dump").textContent = text;
+      }
+
+      // Copying from inside a cross-origin iframe is awkward: the async Clipboard
+      // API needs `clipboard-write` delegated via Permissions Policy, and Onshape
+      // grants `gamepad` but not that. So try three routes, best first, and fall
+      // back to selecting the text so Ctrl+C is a single keystroke rather than a
+      // drag through a narrow panel.
+      async function copyText(text) {
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return "Copied";
+          }
+        } catch { /* delegation refused — fall through */ }
+
+        // Legacy path: execCommand on a real, focused, selected textarea. Still
+        // works inside a user gesture in frames where the async API is blocked.
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          ta.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          ta.setSelectionRange(0, text.length);
+          const ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          if (ok) return "Copied";
+        } catch { /* fall through */ }
+
+        // Last resort: select the dump so the user only has to press Ctrl+C.
+        try {
+          const r = document.createRange();
+          r.selectNodeContents(el("dump"));
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(r);
+          return "Selected — press Ctrl+C";
+        } catch { return "Copy failed"; }
       }
 
       el("copy").addEventListener("click", async () => {
-        try { await navigator.clipboard.writeText(el("dump").textContent); el("copy").textContent = "Copied"; }
-        catch { el("copy").textContent = "Select the text below"; }
-        setTimeout(() => (el("copy").textContent = "Copy diagnostic"), 1800);
+        const btn = el("copy");
+        btn.textContent = await copyText(el("dump").textContent);
+        setTimeout(() => (btn.textContent = "Copy diagnostic"), 2200);
       });
 
       addEventListener("gamepadconnected", () => {});
