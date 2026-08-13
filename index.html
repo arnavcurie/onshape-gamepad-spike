@@ -385,7 +385,25 @@
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ...CTX, targets: targets.map(({_s, ...t}) => t) }),
           });
-          if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || r.status); }
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            // Render's free tier stops the service when idle, which loses the
+            // in-memory token and mate cache. Both come back as an auth or 409
+            // failure mid-drive; say what to do rather than printing a raw error
+            // that reads like a bug.
+            if (r.status === 409) {
+              initialized = false; setDirty(true);
+              setBar("auth", "warn", "Server restarted (free tier sleeps when idle) — press Initialize again.");
+              return;
+            }
+            if (r.status === 401) {
+              initialized = false; setDirty(true); isAuthed = false;
+              setBar("auth", "warn", "Onshape login expired — reconnect, then Initialize again.");
+              refreshAuth();
+              return;
+            }
+            throw new Error(j.error || r.status);
+          }
           for (const { id, v } of sent) S[id].posted = v;
         } catch (e) {
           setBar("auth","bad","Write failed: " + e.message);
