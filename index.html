@@ -83,8 +83,6 @@
       #b4.on{fill:var(--ok);stroke:var(--ok)} #b8.on{fill:var(--yellow);stroke:var(--warn)}
       .lbl  {fill:var(--faint);font:600 9px ui-monospace,Consolas,monospace;text-anchor:middle}
       .trigbg{fill:var(--panel);stroke:var(--rule)} .trigfill{fill:var(--blue);transition:width .05s linear}
-      .boundring{fill:none;stroke:var(--yellow);stroke-width:2.5;opacity:0}
-      .boundring.on{opacity:1}
 
       table{border-collapse:collapse;width:100%;font-size:12px}
       th{text-align:left;font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;
@@ -97,9 +95,8 @@
               font-variant-numeric:tabular-nums;white-space:nowrap}
       tr.active td.live{color:var(--blue);font-weight:600}
       tr.unbound td:not(.src){opacity:.45}
-      /* A failed row is tinted whole. The yellow ring on the diagram marks
-         success, but the ABSENCE of a ring is not something a user reads as an
-         error — the failure has to say so where they are looking. */
+      /* A failed row is tinted whole — the table is the single place binding
+         state is reported, so a failure has to say so where the user is looking. */
       tr.bad td{background:var(--bad-bg)}
       tr.bad td.src{color:var(--bad)}
       tr.bad td.ro{color:var(--bad);font-weight:600}
@@ -142,11 +139,9 @@
         <rect class="trigbg" x="78" y="10" width="58" height="13" rx="6.5"/>
         <rect class="trigfill" id="ltFill" x="79" y="11" width="0" height="11" rx="5.5"/>
         <text class="lbl" x="107" y="7">LT</text>
-        <circle class="boundring" id="ring-leftTrigger" cx="107" cy="16.5" r="16"/>
         <rect class="trigbg" x="284" y="10" width="58" height="13" rx="6.5"/>
         <rect class="trigfill" id="rtFill" x="285" y="11" width="0" height="11" rx="5.5"/>
         <text class="lbl" x="313" y="7">RT</text>
-        <circle class="boundring" id="ring-rightTrigger" cx="313" cy="16.5" r="16"/>
 
         <rect class="btn" id="b4" x="82" y="32" width="54" height="13" rx="6.5"/>
         <text class="lbl" x="109" y="41">LB</text>
@@ -161,12 +156,10 @@
           C 28 124, 60 92, 96 74 Z"/>
 
         <circle class="well" cx="135" cy="104" r="24"/>
-        <circle class="boundring" id="ring-leftStick" cx="135" cy="104" r="28"/>
         <g id="lsWrap"><circle class="cap" id="ls" cx="135" cy="104" r="16"/></g>
         <circle class="btn" id="b10" cx="135" cy="104" r="5.5"/>
 
         <circle class="well" cx="248" cy="158" r="24"/>
-        <circle class="boundring" id="ring-rightStick" cx="248" cy="158" r="28"/>
         <g id="rsWrap"><circle class="cap" id="rs" cx="248" cy="158" r="16"/></g>
         <circle class="btn" id="b11" cx="248" cy="158" r="5.5"/>
 
@@ -204,15 +197,16 @@
     <div class="row">
       <button id="init" class="primary" title="Verify every mate name and read its limits. Shortcut: LB + Start">Initialize</button>
       <span id="initState" class="pill">not initialized</span>
-      <button id="verify" title="Re-read the assembly and flag any joint whose value did not actually change">Verify</button>
       <button id="home" title="Ramp every rate joint back to 0°. Shortcut: LB + Back">Home all</button>
       <button id="logout" style="margin-left:auto">Disconnect</button>
     </div>
 
     <p class="hint">
       Type each mate name exactly as Onshape reports it, then press
-      <b>Initialize</b> &mdash; it checks the mate exists, is drivable, and reads its
-      limits. Editing a name marks the table dirty and you must Initialize again.
+      <b>Initialize</b> &mdash; it checks the mate exists, is drivable, reads its
+      limits, and fills <b>Actual</b> from the model. Press it again after driving
+      and it also reports any joint that did <i>not</i> move where it was told.
+      Editing a name marks the table dirty and you must Initialize again.
       Hold <b>LB</b> to move anything. <b>LB+Back</b> homes, <b>LB+Start</b>
       re-initializes. Sticks integrate as speed; triggers map straight onto the
       joint's range.
@@ -256,12 +250,12 @@
       const READONLY = CTX.wvm !== "w";   // versions are immutable
 
       const SOURCES = [
-        { id:"leftStickX",   label:"left stick X",  kind:"stick",   ring:"ring-leftStick"   },
-        { id:"leftStickY",   label:"left stick Y",  kind:"stick",   ring:"ring-leftStick"   },
-        { id:"rightStickX",  label:"right stick X", kind:"stick",   ring:"ring-rightStick"  },
-        { id:"rightStickY",  label:"right stick Y", kind:"stick",   ring:"ring-rightStick"  },
-        { id:"leftTrigger",  label:"left trigger",  kind:"trigger", ring:"ring-leftTrigger" },
-        { id:"rightTrigger", label:"right trigger", kind:"trigger", ring:"ring-rightTrigger"},
+        { id:"leftStickX",   label:"left stick X",  kind:"stick"   },
+        { id:"leftStickY",   label:"left stick Y",  kind:"stick"   },
+        { id:"rightStickX",  label:"right stick X", kind:"stick"  },
+        { id:"rightStickY",  label:"right stick Y", kind:"stick"  },
+        { id:"leftTrigger",  label:"left trigger",  kind:"trigger" },
+        { id:"rightTrigger", label:"right trigger", kind:"trigger"},
       ];
 
       // Per-control, not global: sticks here rest slightly off-centre, triggers
@@ -425,7 +419,11 @@
           }
           const lookup = (typed) => exact.get(typed) ?? loose.get(normName(typed));
 
-          let bad = 0, good = 0;
+          // Which rows were verified BEFORE this run, so drift can only be
+          // judged for joints that were actually driven since the last one.
+          const wasOk = new Set(SOURCES.filter((s) => S[s.id].ok).map((s) => s.id));
+          let bad = 0, good = 0, confirmed = 0;
+          const stuck = [];
           for (const s of SOURCES) {
             const name = B[s.id].joint.trim();
             const cell = $("ro-"+s.id), tr = $("row-"+s.id);
@@ -460,14 +458,27 @@
               bad++; continue;
             }
 
+            // Before re-seeding, check what happened since the LAST run. This is
+            // why Initialize and Verify are one button: verifying is just
+            // reading the assembly again, which is exactly what Initialize does.
+            // Splitting them meant two round trips to answer one question, and
+            // a Verify that could be run before anything had been driven.
+            const actual = m.currentDeg ?? 0;
+            const exercised = wasOk.has(s.id) && Math.abs(S[s.id].commanded - (S[s.id].seed ?? S[s.id].commanded)) > 1;
+            if (exercised && Math.abs(actual - S[s.id].commanded) > 1) {
+              stuck.push({ name, commanded: S[s.id].commanded, actual });
+            } else if (exercised) {
+              confirmed++;
+            }
+
             S[s.id].info = m; S[s.id].ok = true; good++;
-            // Seed from the model so the first nudge does not teleport the joint.
-            S[s.id].commanded = m.currentDeg ?? 0;
-            S[s.id].posted = S[s.id].commanded;
-            S[s.id].seed = S[s.id].commanded;   // Verify compares against this
+            // Seed from the model so the next nudge starts where the arm is.
+            S[s.id].commanded = actual;
+            S[s.id].posted = actual;
+            S[s.id].seed = actual;
             cell.textContent = m.limits?.text || "unlimited";
             cell.title = m.limits ? "" : "This mate declares no limits; clamped to ±" + CLAMP_UNLIMITED + "°";
-            $("act-"+s.id).textContent = m.currentDeg == null ? "—" : m.currentDeg.toFixed(2) + "°";
+            $("act-"+s.id).textContent = m.currentDeg == null ? "—" : actual.toFixed(2) + "°";
           }
           initialized = good > 0;
           setDirty(bad > 0);
@@ -486,85 +497,32 @@
                     : " — other document, not drivable")
                 ).join(", ") + "."
               : " No sub-assemblies in this assembly.";
-          setBar("auth", bad ? "warn" : "ok",
-            bad ? `Initialized ${good}; ${bad} name(s) did not resolve.${subNote} Available: ` +
-                  j.mates.map((m)=>m.mateName).join(", ")
-                : `Connected. ${good} joint${good===1?"":"s"} verified.${subNote}`);
+          // Mark rows whose write did not take. Done after seeding so the tint
+          // survives, and so the row still holds usable limits.
+          for (const st of stuck) {
+            const s = SOURCES.find((x) => B[x.id].joint.trim() === st.name);
+            if (!s) continue;
+            const cell = $("ro-"+s.id);
+            $("row-"+s.id).classList.add("bad");
+            cell.textContent = "not moving";
+            cell.title = `Commanded ${st.commanded.toFixed(2)}° but the assembly reads ${st.actual.toFixed(2)}°. ` +
+              `The write is being accepted and discarded — typical of a joint whose value the solver owns, ` +
+              `such as one inside a closed kinematic loop.`;
+          }
+
+          const parts = [];
+          parts.push(`${good} joint${good===1?"":"s"} resolved`);
+          if (confirmed) parts.push(`<b>${confirmed}</b> moved and read back correctly`);
+          if (stuck.length) parts.push(`<b>not moving:</b> ` + stuck.map((x)=>x.name).join(", "));
+          if (bad) parts.push(`${bad} name(s) did not resolve`);
+          setBar("auth", stuck.length ? "bad" : bad ? "warn" : "ok",
+            parts.join(" · ") + "." + subNote +
+            (bad ? " Available: " + j.mates.map((m)=>m.mateName).join(", ") : ""));
         } catch (e) {
           initialized = false; setDirty(true);
           setBar("auth","bad","Initialize failed: " + e.message);
           $("initState").textContent = prev;
         } finally { $("init").disabled = false; }
-      };
-
-      // ---- verify ----------------------------------------------------------
-      // The failure this project keeps meeting is a write that returns success
-      // and changes nothing: a mate inside a closed kinematic loop is a solver
-      // OUTPUT, so the value is accepted and silently discarded. Sub-assembly
-      // bindings make that more likely, not less. So offer the check the CLI
-      // learned to always do — read back and compare.
-      $("verify").onclick = async () => {
-        if (!initialized) { setBar("auth","warn","Initialize first."); return; }
-        $("verify").disabled = true;
-        try {
-          const r = await fetch(`/api/mates?did=${CTX.did}&wvm=${CTX.wvm}&wvmid=${CTX.wvmid}&eid=${CTX.eid}`);
-          const j = await r.json();
-          if (!r.ok) throw new Error(j.error || "failed");
-          // Same lookup rule as Initialize — exact, then unambiguous-loose.
-          const vNorm = (x) => String(x ?? "").replace(/\s*<\d+>\s*(?=\/|$)/g, "").trim();
-          const vExact = new Map(j.mates.map((m) => [m.mateName, m]));
-          const vLoose = new Map();
-          for (const m of j.mates) {
-            const k = vNorm(m.mateName);
-            vLoose.set(k, vLoose.has(k) ? "AMBIGUOUS" : m);
-          }
-          const byName = { get: (n) => vExact.get(n) ?? vLoose.get(vNorm(n)) };
-          const stuck = [], untested = [], ok = [];
-          for (const s of SOURCES) {
-            if (!S[s.id].ok) continue;
-            const name = B[s.id].joint.trim();
-            const m = byName.get(name) ?? byName.get(String(name).replace(/\s*<\d+>\s*(?=\/|$)/g, "").trim());
-            const tr = $("row-"+s.id), cell = $("ro-"+s.id);
-            if (!m || typeof m !== "object" || m.currentDeg == null) continue;
-            // Show the read-back next to the commanded value. Pass/fail alone
-            // cannot tell "we never commanded anything" from "the write was
-            // discarded" from "it wrote and the model did not move".
-            $("act-"+s.id).textContent = m.currentDeg.toFixed(2) + "°";
-            const drift = Math.abs(m.currentDeg - S[s.id].commanded);
-            // Only meaningful once something was actually commanded away from
-            // where it started, so ignore joints still sitting at their seed.
-            const moved = Math.abs(S[s.id].commanded - (S[s.id].seed ?? S[s.id].commanded)) > 1;
-            if (!moved) {
-              // Nothing was ever commanded away from the seed, so a match proves
-              // nothing. Saying "verified" here would be a false pass.
-              cell.textContent = m.limits?.text || "unlimited";
-              cell.title = "Not exercised: this joint has not been commanded away from where it started.";
-              untested.push(name);
-              continue;
-            }
-            if (drift > 1) {
-              stuck.push(name);
-              tr.classList.add("bad");
-              cell.textContent = "ignored";
-              cell.title = `Commanded ${S[s.id].commanded.toFixed(2)}° but the assembly reads ${m.currentDeg.toFixed(2)}°. ` +
-                `Writes to this mate are being accepted and discarded — typical of a joint inside a closed kinematic loop, ` +
-                `whose value the solver owns.`;
-            } else {
-              tr.classList.remove("bad");
-              cell.textContent = m.limits?.text || "unlimited";
-              cell.title = "";
-              ok.push(name);
-            }
-          }
-          const parts = [];
-          if (ok.length) parts.push(`<b>${ok.length}</b> moved and read back correctly`);
-          if (stuck.length) parts.push(`<b>not moving:</b> ${stuck.join(", ")} — write accepted and discarded`);
-          if (untested.length) parts.push(`not exercised: ${untested.join(", ")} — drive it first, then Verify`);
-          setBar("auth", stuck.length ? "bad" : (ok.length ? "ok" : "warn"),
-            parts.join(" · ") || "Nothing to verify.");
-        } catch (e) {
-          setBar("auth","bad","Verify failed: " + e.message);
-        } finally { $("verify").disabled = false; }
       };
 
       // ---- driving ---------------------------------------------------------
@@ -710,7 +668,6 @@
 
           $("live-"+s.id).textContent = st.ok ? st.commanded.toFixed(2) + "°" : (bound ? "—" : "—");
           $("row-"+s.id).classList.toggle("active", st.ok && live && Math.abs(v) > 0);
-          const ring = $(s.ring); if (ring) ring.classList.toggle("on", st.ok);
         }
         if (homing && allHome) homing = false;
 
