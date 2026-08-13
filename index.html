@@ -97,7 +97,12 @@
               font-variant-numeric:tabular-nums;white-space:nowrap}
       tr.active td.live{color:var(--blue);font-weight:600}
       tr.unbound td:not(.src){opacity:.45}
-      tr.bad td.ro{color:var(--bad)}
+      /* A failed row is tinted whole. The yellow ring on the diagram marks
+         success, but the ABSENCE of a ring is not something a user reads as an
+         error — the failure has to say so where they are looking. */
+      tr.bad td{background:var(--bad-bg)}
+      tr.bad td.src{color:var(--bad)}
+      tr.bad td.ro{color:var(--bad);font-weight:600}
 
       input,select{font:inherit;font-size:12px;padding:.16rem .28rem;width:100%;
         border:1px solid var(--rule);border-radius:4px;background:var(--paper);color:var(--ink)}
@@ -317,7 +322,16 @@
         tr.querySelectorAll("[data-f]").forEach((inp) => {
           inp.addEventListener("input", () => {
             const f = inp.dataset.f;
-            if (f === "joint") { B[s.id].joint = inp.value; setDirty(true); S[s.id].ok = false; S[s.id].info = null; $("ro-"+s.id).innerHTML = "&mdash;"; }
+            if (f === "joint") {
+              B[s.id].joint = inp.value;
+              setDirty(true);
+              S[s.id].ok = false; S[s.id].info = null;
+              $("ro-"+s.id).innerHTML = "&mdash;";
+              // Editing makes the row UNKNOWN, not still-wrong. Leaving the red
+              // on while someone types a correction is just noise.
+              $("row-"+s.id).classList.remove("bad");
+              inp.classList.remove("err");
+            }
             else B[s.id].scale = Number(inp.value) || 0;   // scale needs no re-init
             persist();
             paintRow(s);
@@ -398,11 +412,29 @@
             const inp = tr.querySelector('[data-f="joint"]');
             S[s.id].info = null; S[s.id].ok = false;
             tr.classList.remove("bad"); inp.classList.remove("err");
+            cell.title = ""; inp.title = "";
             if (!name) { cell.innerHTML = "&mdash;"; continue; }
 
+            const fail = (why, tip) => {
+              cell.textContent = why; cell.title = tip;
+              tr.classList.add("bad"); inp.classList.add("err"); inp.title = tip;
+            };
             const m = byName.get(name);
-            if (!m) { cell.textContent = "not found"; tr.classList.add("bad"); inp.classList.add("err"); bad++; continue; }
-            if (!m.fields.length) { cell.textContent = "not drivable"; tr.classList.add("bad"); inp.classList.add("err"); bad++; continue; }
+            if (!m) {
+              fail("no such mate", "No mate with this name in the assembly. Names are case-sensitive and must match exactly.");
+              bad++; continue;
+            }
+            if (!m.fields.length) {
+              // A mate can exist and still be undrivable — a joint inside a
+              // closed kinematic loop is a solver output, and writes to it are
+              // accepted and silently discarded.
+              fail("not drivable", "This mate exposes no drivable field. Joints inside a closed kinematic loop are solver outputs; writes are accepted and ignored.");
+              bad++; continue;
+            }
+            if (m.subAssembly) {
+              fail("sub-assembly", "This mate belongs to a sub-assembly occurrence and cannot be driven from the top level.");
+              bad++; continue;
+            }
 
             S[s.id].info = m; S[s.id].ok = true; good++;
             // Seed from the model so the first nudge does not teleport the joint.
