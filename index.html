@@ -315,7 +315,7 @@
         tr.id = "row-" + s.id;
         tr.innerHTML =
           `<td class="src">${s.label}</td>` +
-          `<td><input data-f="joint" placeholder="mate  or  Sub-assembly/mate" title="Top-level mates take their bare name. A mate inside a sub-assembly is addressed Sub-assembly/mate." value="${B[s.id].joint.replace(/"/g,"&quot;")}"></td>` +
+          `<td><input data-f="joint" placeholder="mate  or  Sub &lt;1&gt;/mate" title="Top-level mates take their bare name. A mate inside a sub-assembly is addressed by the instance name as the CAD tree shows it, e.g. Armatron_Grip &lt;1&gt;/Revolute_Grip." value="${B[s.id].joint.replace(/"/g,"&quot;")}"></td>` +
           `<td><input data-f="scale" class="num" type="number" step="0.1" value="${B[s.id].scale}"></td>` +
           `<td class="ro" id="ro-${s.id}">&mdash;</td>` +
           `<td class="live" id="live-${s.id}">&mdash;</td>`;
@@ -471,10 +471,10 @@
               ? " Sub-assemblies: " + subs.map((s) =>
                   `<b>${s.name}</b>` + (s.drivable
                     ? ` (${s.mateCount} mates` +
-                      // Two occurrences share one element, so they share one set
-                      // of mate values — driving one moves both. Say so, rather
-                      // than letting it be discovered.
-                      (s.occurrences > 1 ? `, ${s.occurrences} copies — driving moves all of them` : "") + ")"
+                      // Instances of one sub-assembly share an element, so they
+                      // share mate values — driving one moves every copy. Say so
+                      // rather than letting it be discovered.
+                      (s.occurrences > 1 ? `; ${s.occurrences} instances share these values` : "") + ")"
                     : " — other document, not drivable")
                 ).join(", ") + "."
               : " No sub-assemblies in this assembly.";
