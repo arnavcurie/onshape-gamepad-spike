@@ -657,8 +657,14 @@
               const t = clamp(b.scale < 0 ? 1 - Math.abs(v) : Math.abs(v), 0, 1);
               st.commanded = lo + t * (hi - lo);
             } else if (homing) {
-              const rem = 0 - st.commanded;
-              if (Math.abs(rem) <= HOME_TOL) st.commanded = 0;
+              // Home to the mate's zero, but CLAMPED INTO ITS RANGE. Ramping at
+              // an unreachable target is not a cosmetic bug: the clamp holds the
+              // joint at the boundary, the remaining distance never shrinks,
+              // "arrived" never fires, and homing stays engaged — leaving the
+              // arm parked short of target with manual control still locked out.
+              const target = clamp(0, lo, hi);
+              const rem = target - st.commanded;
+              if (Math.abs(rem) <= HOME_TOL) st.commanded = target;
               else { allHome = false; st.commanded += Math.sign(rem) * Math.min(HOME_RATE*dt, Math.abs(rem)); }
               st.commanded = clamp(st.commanded, lo, hi);
             } else {
@@ -683,7 +689,17 @@
 
         const n = SOURCES.filter((s) => S[s.id].ok).length;
         if (READONLY) setBar("pad","bad","Open a workspace, not a version — versions are read-only.");
-        else if (homing) setBar("pad","warn",`Homing to 0° at ${HOME_RATE}°/s — move a stick to cancel`);
+        else if (homing) {
+          // Name the target per joint when a mate's range excludes zero, so a
+          // joint stopping somewhere other than 0° is explained rather than
+          // looking like drift.
+          const targets = SOURCES.filter((s) => S[s.id].ok && s.kind !== "trigger")
+            .map((s) => { const [lo,hi] = boundsOf(s.id); return clamp(0, lo, hi); });
+          const offZero = targets.some((t) => Math.abs(t) > 0.001);
+          setBar("pad","warn",
+            `Homing at ${HOME_RATE}°/s — move a stick to cancel` +
+            (offZero ? ` (targets: ${targets.map((t)=>t.toFixed(1)+"°").join(", ")} — clamped into each mate's limits)` : " to 0°"));
+        }
         else if (!initialized || dirty) setBar("pad","warn", padName + " — Initialize before driving (LB+Start)");
         else if (enabled) setBar("pad","ok", `Deadman held — ${n} joint${n===1?"":"s"} live`);
         else setBar("pad","warn", padName + " — hold LB to move (LB+Back homes, LB+Start initializes)");
