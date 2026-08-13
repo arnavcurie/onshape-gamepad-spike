@@ -44,13 +44,16 @@ const REDIRECT_URI = `${PUBLIC_URL}/auth/callback`;
 // ---- the single shared login (see LAB SCOPE above) -------------------------
 let token = null;        // { access_token, refresh_token, expires_at }
 
-// The mate-values array Onshape last gave us, kept so writes can round-trip it
-// whole. Never build a mate-values body from scratch: round-tripping the
+// The mate-values arrays Onshape last gave us, kept so writes can round-trip
+// them whole. Never build a mate-values body from scratch: round-tripping the
 // server's own payload preserves fields this code does not model, and a Ball
 // mate's *Previous bookkeeping is exactly such a field. Refreshed by
 // Initialize; mutated in place by /api/drive. Same discipline as the CLI's
 // live-mate-driver — one GET up front, then mutate and POST.
-let mateCache = null;    // { key, list }
+//
+// Keyed by ELEMENT, because a sub-assembly's mates live in the sub-assembly's
+// own element and must be posted back there, not to the parent.
+let mateCache = null;    // { key, byEid: Map<eid, { list, label }> }
 
 function authed() {
   return Boolean(token && token.access_token && Date.now() < token.expires_at - 30_000);
@@ -297,7 +300,36 @@ const server = createServer(async (req, res) => {
 
       const base = `/assemblies/d/${did}/${wvm}/${wvmid}/e/${eid}`;
       const values = await onshape(`${base}/matevalues`);
-      mateCache = { key: `${did}/${wvm}/${wvmid}/${eid}`, list: values?.mateValues ?? [] };
+      const byEid = new Map();
+      byEid.set(eid, { list: values?.mateValues ?? [], label: null });
+
+      // Sub-assemblies. Their mates are NOT returned by the parent's matevalues
+      // call, so each has to be asked for its own — and written back to its own
+      // element too. Only sub-assemblies living in this same document and
+      // workspace can be driven: another document would need its own workspace,
+      // which we do not have.
+      const subs = [];
+      try {
+        const def = await onshape(`${base}?includeMateFeatures=false&includeMateConnectors=false`);
+        const seen = new Set();
+        for (const inst of def?.rootAssembly?.instances ?? []) {
+          if (inst?.type !== "Assembly" || !inst?.elementId) continue;
+          const sameDoc = !inst.documentId || inst.documentId === did;
+          const keyName = `${inst.name}`;
+          if (seen.has(keyName)) continue;
+          seen.add(keyName);
+          subs.push({ name: keyName, eid: inst.elementId, sameDoc });
+        }
+      } catch { /* no sub-assembly listing — top level still works */ }
+
+      for (const s of subs) {
+        if (!s.sameDoc) continue;
+        try {
+          const sv = await onshape(`/assemblies/d/${did}/${wvm}/${wvmid}/e/${s.eid}/matevalues`);
+          byEid.set(s.eid, { list: sv?.mateValues ?? [], label: s.name });
+        } catch { /* unreadable sub-assembly — skip rather than fail Initialize */ }
+      }
+      mateCache = { key: `${did}/${wvm}/${wvmid}/${eid}`, byEid };
 
       // Limits are a nice-to-have: if the features call fails (permissions, a
       // version rather than a workspace), still return the drivable list rather
@@ -311,20 +343,34 @@ const server = createServer(async (req, res) => {
         }
       } catch { /* limits unavailable — degrade, do not fail */ }
 
-      const mates = (values?.mateValues ?? []).map((mv) => {
-        const fields = drivableFields(mv);
-        const feat = byId.get(mv.featureId);
-        return {
-          mateName: mv.mateName,
-          featureId: mv.featureId,
-          jsonType: mv.jsonType,
-          fields,
-          currentDeg: fields.length ? Number((mv[fields[0]] * RAD).toFixed(4)) : null,
-          limits: feat ? limitsFor(feat) : null,
-          subAssembly: Array.isArray(mv.ownerOccurrencePath) && mv.ownerOccurrencePath.length > 0,
-        };
+      // One flat list. Top-level mates keep their bare name; a sub-assembly's
+      // are addressed "<sub-assembly>/<mate>" so the two can never collide.
+      const mates = [];
+      for (const [thisEid, entry] of byEid) {
+        for (const mv of entry.list) {
+          const fields = drivableFields(mv);
+          const feat = entry.label ? null : byId.get(mv.featureId);
+          const bare = String(mv.mateName ?? "");
+          mates.push({
+            mateName: entry.label ? `${entry.label}/${bare}` : bare,
+            bareName: bare,
+            parent: entry.label,
+            eid: thisEid,
+            featureId: mv.featureId,
+            jsonType: mv.jsonType,
+            fields,
+            currentDeg: fields.length ? Number((mv[fields[0]] * RAD).toFixed(4)) : null,
+            limits: feat ? limitsFor(feat) : null,
+            // Occurrence-owned mates reached through the PARENT's list are a
+            // different thing again, and are not drivable from here.
+            viaOccurrence: Array.isArray(mv.ownerOccurrencePath) && mv.ownerOccurrencePath.length > 0,
+          });
+        }
+      }
+      return json(res, 200, {
+        mates,
+        subAssemblies: subs.map((s) => ({ name: s.name, drivable: s.sameDoc })),
       });
-      return json(res, 200, { mates });
     }
 
     // Drive: the panel sends only what moved, as { mateName, valueSi }. The
@@ -345,22 +391,36 @@ const server = createServer(async (req, res) => {
         return json(res, 409, { error: "not initialised for this element — press Initialize" });
       }
 
+      // Group by element: a sub-assembly's mates must be posted back to the
+      // sub-assembly's own element, not to the parent's.
+      const touched = new Set();
       const applied = [];
       for (const t of targets) {
-        const mv = mateCache.list.find((m) => String(m.mateName ?? "") === t.mateName);
-        if (!mv) continue;
-        const field = drivableFields(mv)[0];
-        if (!field) continue;
-        mv[field] = t.valueSi;
-        applied.push({ mateName: t.mateName, field, valueSi: t.valueSi });
+        const parent = t.mateName.includes("/") ? t.mateName.split("/")[0] : null;
+        const bare = parent ? t.mateName.slice(parent.length + 1) : t.mateName;
+        for (const [thisEid, entry] of mateCache.byEid) {
+          if ((entry.label || null) !== parent) continue;
+          const mv = entry.list.find((m) => String(m.mateName ?? "") === bare);
+          if (!mv) continue;
+          const field = drivableFields(mv)[0];
+          if (!field) continue;
+          mv[field] = t.valueSi;
+          touched.add(thisEid);
+          applied.push({ mateName: t.mateName, field, valueSi: t.valueSi });
+          break;
+        }
       }
       if (applied.length === 0) return json(res, 200, { ok: true, applied: [] });
 
-      await onshape(`/assemblies/d/${did}/w/${wvmid}/e/${eid}/matevalues`, {
-        method: "POST",
-        body: JSON.stringify({ mateValues: mateCache.list }),
-      });
-      return json(res, 200, { ok: true, applied });
+      // One POST per element that actually changed — still one microversion per
+      // element per flush, however many of its joints moved.
+      for (const thisEid of touched) {
+        await onshape(`/assemblies/d/${did}/w/${wvmid}/e/${thisEid}/matevalues`, {
+          method: "POST",
+          body: JSON.stringify({ mateValues: mateCache.byEid.get(thisEid).list }),
+        });
+      }
+      return json(res, 200, { ok: true, applied, elements: touched.size });
     }
 
     res.writeHead(404).end("not found");

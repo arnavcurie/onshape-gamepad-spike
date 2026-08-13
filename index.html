@@ -203,6 +203,7 @@
     <div class="row">
       <button id="init" class="primary">Initialize</button>
       <span id="initState" class="pill">not initialized</span>
+      <button id="verify" title="Re-read the assembly and flag any joint whose value did not actually change">Verify</button>
       <button id="home">Home all</button>
       <button id="logout" style="margin-left:auto">Disconnect</button>
     </div>
@@ -314,7 +315,7 @@
         tr.id = "row-" + s.id;
         tr.innerHTML =
           `<td class="src">${s.label}</td>` +
-          `<td><input data-f="joint" placeholder="mate name" value="${B[s.id].joint.replace(/"/g,"&quot;")}"></td>` +
+          `<td><input data-f="joint" placeholder="mate  or  Sub-assembly/mate" title="Top-level mates take their bare name. A mate inside a sub-assembly is addressed Sub-assembly/mate." value="${B[s.id].joint.replace(/"/g,"&quot;")}"></td>` +
           `<td><input data-f="scale" class="num" type="number" step="0.1" value="${B[s.id].scale}"></td>` +
           `<td class="ro" id="ro-${s.id}">&mdash;</td>` +
           `<td class="live" id="live-${s.id}">&mdash;</td>`;
@@ -431,8 +432,8 @@
               fail("not drivable", "This mate exposes no drivable field. Joints inside a closed kinematic loop are solver outputs; writes are accepted and ignored.");
               bad++; continue;
             }
-            if (m.subAssembly) {
-              fail("sub-assembly", "This mate belongs to a sub-assembly occurrence and cannot be driven from the top level.");
+            if (m.viaOccurrence) {
+              fail("occurrence", "This mate is reached through a sub-assembly occurrence in the parent's list and cannot be driven from here. Address it as <sub-assembly>/<mate> instead.");
               bad++; continue;
             }
 
@@ -440,21 +441,73 @@
             // Seed from the model so the first nudge does not teleport the joint.
             S[s.id].commanded = m.currentDeg ?? 0;
             S[s.id].posted = S[s.id].commanded;
+            S[s.id].seed = S[s.id].commanded;   // Verify compares against this
             cell.textContent = m.limits?.text || "unlimited";
             cell.title = m.limits ? "" : "This mate declares no limits; clamped to ±" + CLAMP_UNLIMITED + "°";
           }
           initialized = good > 0;
           setDirty(bad > 0);
-          if (bad) $("initState").textContent = `${good} ok, ${bad} not found`;
+          if (bad) $("initState").textContent = `${good} ok, ${bad} bad`;
+          const subs = (j.subAssemblies || []);
+          const subNote = subs.length
+            ? " Sub-assemblies: " + subs.map((s) => s.name + (s.drivable ? "" : " (other document — not drivable)")).join(", ") + "."
+            : "";
           setBar("auth", bad ? "warn" : "ok",
-            bad ? `Initialized ${good}; ${bad} mate name(s) did not match. Available: ` +
+            bad ? `Initialized ${good}; ${bad} name(s) did not resolve.${subNote} Available: ` +
                   j.mates.map((m)=>m.mateName).join(", ")
-                : `Connected. ${good} joint${good===1?"":"s"} verified.`);
+                : `Connected. ${good} joint${good===1?"":"s"} verified.${subNote}`);
         } catch (e) {
           initialized = false; setDirty(true);
           setBar("auth","bad","Initialize failed: " + e.message);
           $("initState").textContent = prev;
         } finally { $("init").disabled = false; }
+      };
+
+      // ---- verify ----------------------------------------------------------
+      // The failure this project keeps meeting is a write that returns success
+      // and changes nothing: a mate inside a closed kinematic loop is a solver
+      // OUTPUT, so the value is accepted and silently discarded. Sub-assembly
+      // bindings make that more likely, not less. So offer the check the CLI
+      // learned to always do — read back and compare.
+      $("verify").onclick = async () => {
+        if (!initialized) { setBar("auth","warn","Initialize first."); return; }
+        $("verify").disabled = true;
+        try {
+          const r = await fetch(`/api/mates?did=${CTX.did}&wvm=${CTX.wvm}&wvmid=${CTX.wvmid}&eid=${CTX.eid}`);
+          const j = await r.json();
+          if (!r.ok) throw new Error(j.error || "failed");
+          const byName = new Map(j.mates.map((m) => [m.mateName, m]));
+          const stuck = [];
+          for (const s of SOURCES) {
+            if (!S[s.id].ok) continue;
+            const name = B[s.id].joint.trim();
+            const m = byName.get(name);
+            const tr = $("row-"+s.id), cell = $("ro-"+s.id);
+            if (!m || m.currentDeg == null) continue;
+            const drift = Math.abs(m.currentDeg - S[s.id].commanded);
+            // Only meaningful once something was actually commanded away from
+            // where it started, so ignore joints still sitting at their seed.
+            const moved = Math.abs(S[s.id].commanded - (S[s.id].seed ?? S[s.id].commanded)) > 1;
+            if (moved && drift > 1) {
+              stuck.push(name);
+              tr.classList.add("bad");
+              cell.textContent = "ignored";
+              cell.title = `Commanded ${S[s.id].commanded.toFixed(2)}° but the assembly reads ${m.currentDeg.toFixed(2)}°. ` +
+                `Writes to this mate are being accepted and discarded — typical of a joint inside a closed kinematic loop, ` +
+                `whose value the solver owns.`;
+            } else {
+              tr.classList.remove("bad");
+              cell.textContent = m.limits?.text || "unlimited";
+              cell.title = "";
+            }
+          }
+          setBar("auth", stuck.length ? "bad" : "ok",
+            stuck.length
+              ? `Not moving: ${stuck.join(", ")} — the write is accepted and discarded. See the row tooltip.`
+              : "Verified: every driven joint reads back where it was commanded.");
+        } catch (e) {
+          setBar("auth","bad","Verify failed: " + e.message);
+        } finally { $("verify").disabled = false; }
       };
 
       // ---- driving ---------------------------------------------------------
