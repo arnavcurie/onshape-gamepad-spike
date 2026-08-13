@@ -404,7 +404,11 @@
           const r = await fetch(`/api/mates?did=${CTX.did}&wvm=${CTX.wvm}&wvmid=${CTX.wvmid}&eid=${CTX.eid}`);
           const j = await r.json();
           if (!r.ok) throw new Error(j.error || "failed");
-          const byName = new Map(j.mates.map((m) => [m.mateName, m]));
+          // Match the way the drive path does, or the two stages disagree about
+          // what a name means: Onshape's instance names carry an occurrence
+          // suffix ("Armatron_Grip <1>"), so accept it typed either way.
+          const normName = (x) => String(x ?? "").replace(/\s*<\d+>\s*(?=\/|$)/g, "").trim();
+          const byName = new Map(j.mates.map((m) => [normName(m.mateName), m]));
 
           let bad = 0, good = 0;
           for (const s of SOURCES) {
@@ -420,7 +424,7 @@
               cell.textContent = why; cell.title = tip;
               tr.classList.add("bad"); inp.classList.add("err"); inp.title = tip;
             };
-            const m = byName.get(name);
+            const m = byName.get(normName(name));
             if (!m) {
               fail("no such mate", "No mate with this name in the assembly. Names are case-sensitive and must match exactly.");
               bad++; continue;
