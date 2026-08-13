@@ -190,14 +190,24 @@
       //
       // Accept both shapes so the same page works in either extension type.
       const Q = new URLSearchParams(location.search);
+
+      // Preferred: the context arrives in the PATH, because Onshape's own
+      // documented example puts the placeholders there and the action URL field
+      // appears to drop a query string (observed: only the default params
+      // companyId/server/userId/clientId/locale/theme survived).
+      //   /d/{did}/{w|v}/{wvmid}/e/{eid}
+      const fromPath = location.pathname.match(/^\/d\/([^/]+)\/([wvm])\/([^/]+)\/e\/([^/]+)\/?$/);
+
       const wvmRaw = (Q.get("wvm") || Q.get("workspaceOrVersion") || "").toLowerCase();
-      const wvmFromTemplate = wvmRaw.startsWith("v") ? "v" : wvmRaw.startsWith("w") ? "w" : "";
-      const CTX = {
-        did: Q.get("documentId") || "",
-        wvm: wvmFromTemplate || (Q.get("workspaceId") ? "w" : Q.get("versionId") ? "v" : "w"),
-        wvmid: Q.get("wvmid") || Q.get("workspaceOrVersionId") || Q.get("workspaceId") || Q.get("versionId") || "",
-        eid: Q.get("elementId") || "",
-      };
+      const wvmFromQuery = wvmRaw.startsWith("v") ? "v" : wvmRaw.startsWith("w") ? "w" : "";
+      const CTX = fromPath
+        ? { did: fromPath[1], wvm: fromPath[2], wvmid: fromPath[3], eid: fromPath[4] }
+        : {
+            did: Q.get("documentId") || "",
+            wvm: wvmFromQuery || (Q.get("workspaceId") ? "w" : Q.get("versionId") ? "v" : "w"),
+            wvmid: Q.get("wvmid") || Q.get("workspaceOrVersionId") || Q.get("workspaceId") || Q.get("versionId") || "",
+            eid: Q.get("elementId") || "",
+          };
       const READONLY = CTX.wvm !== "w";   // versions are immutable
 
       const SOURCES = [
@@ -304,10 +314,11 @@
           // wrong thing once already; the received keys name the real problem.
           const got = [...Q.keys()];
           setBar("auth", "bad",
-            "No document context in the URL. The extension's action URL needs the " +
-            "placeholders:<br><code style='font-size:10px'>?documentId={$documentId}&amp;wvm={$workspaceOrVersion}" +
-            "&amp;wvmid={$workspaceOrVersionId}&amp;elementId={$elementId}</code><br>" +
-            "Received: " + (got.length ? got.join(", ") : "nothing"));
+            "No document context. Set the extension's action URL to:<br>" +
+            "<code style='font-size:10px'>" + location.origin +
+            "/d/{$documentId}/{$workspaceOrVersion}/{$workspaceOrVersionId}/e/{$elementId}</code><br>" +
+            "path seen: <code style='font-size:10px'>" + location.pathname + "</code><br>" +
+            "query seen: " + (got.length ? got.join(", ") : "nothing"));
           return;
         }
         $("init").disabled = true;

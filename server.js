@@ -224,7 +224,14 @@ const server = createServer(async (req, res) => {
 
   try {
     // ---- panel ----
-    if (req.method === "GET" && (p === "/" || p === "/index.html")) return serveFile(res, "index.html");
+    // Also served for a path carrying the document context, because Onshape's
+    // right panel substitutes {$documentId} etc into the ACTION URL and its own
+    // documented example puts them in the path rather than the query string —
+    // which the field appears to drop. The page parses them back out.
+    //   /d/{did}/{w|v}/{wvmid}/e/{eid}
+    if (req.method === "GET" && (p === "/" || p === "/index.html" || /^\/d\/[^/]+\/[wvm]\/[^/]+\/e\/[^/]+\/?$/.test(p))) {
+      return serveFile(res, "index.html");
+    }
     if (req.method === "GET" && p === "/spike.html") return serveFile(res, "spike.html");
 
     // ---- auth ----
