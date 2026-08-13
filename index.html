@@ -449,9 +449,13 @@
           setDirty(bad > 0);
           if (bad) $("initState").textContent = `${good} ok, ${bad} bad`;
           const subs = (j.subAssemblies || []);
-          const subNote = subs.length
-            ? " Sub-assemblies: " + subs.map((s) => s.name + (s.drivable ? "" : " (other document — not drivable)")).join(", ") + "."
-            : "";
+          const subNote = j.subError
+            ? ` <b>Sub-assemblies could not be listed:</b> ${j.subError} — nested bindings will all read "no such mate".`
+            : subs.length
+              ? " Sub-assemblies: " + subs.map((s) =>
+                  `<b>${s.name}</b>` + (s.drivable ? ` (${s.mateCount} mates)` : " — other document, not drivable")
+                ).join(", ") + "."
+              : " No sub-assemblies in this assembly.";
           setBar("auth", bad ? "warn" : "ok",
             bad ? `Initialized ${good}; ${bad} name(s) did not resolve.${subNote} Available: ` +
                   j.mates.map((m)=>m.mateName).join(", ")

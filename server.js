@@ -309,18 +309,27 @@ const server = createServer(async (req, res) => {
       // workspace can be driven: another document would need its own workspace,
       // which we do not have.
       const subs = [];
+      let subError = null;
       try {
         const def = await onshape(`${base}?includeMateFeatures=false&includeMateConnectors=false`);
         const seen = new Set();
         for (const inst of def?.rootAssembly?.instances ?? []) {
           if (inst?.type !== "Assembly" || !inst?.elementId) continue;
           const sameDoc = !inst.documentId || inst.documentId === did;
-          const keyName = `${inst.name}`;
-          if (seen.has(keyName)) continue;
-          seen.add(keyName);
-          subs.push({ name: keyName, eid: inst.elementId, sameDoc });
+          // Onshape names instances with an occurrence suffix — "Armatron_Grip <1>".
+          // Nobody wants to type that, so the addressable label drops it. The raw
+          // name is kept so both spellings resolve.
+          const raw = String(inst.name ?? "");
+          const label = raw.replace(/\s*<\d+>\s*$/, "").trim() || raw;
+          if (seen.has(label)) continue;
+          seen.add(label);
+          subs.push({ name: label, rawName: raw, eid: inst.elementId, sameDoc });
         }
-      } catch { /* no sub-assembly listing — top level still works */ }
+      } catch (e) {
+        // Do not swallow this: with no listing, every sub-assembly binding fails
+        // as "no such mate" and the reason is invisible.
+        subError = String(e.message || e);
+      }
 
       for (const s of subs) {
         if (!s.sameDoc) continue;
@@ -369,7 +378,11 @@ const server = createServer(async (req, res) => {
       }
       return json(res, 200, {
         mates,
-        subAssemblies: subs.map((s) => ({ name: s.name, drivable: s.sameDoc })),
+        subAssemblies: subs.map((s) => ({
+          name: s.name, rawName: s.rawName, drivable: s.sameDoc,
+          mateCount: (byEid.get(s.eid)?.list ?? []).length,
+        })),
+        subError,
       });
     }
 
@@ -396,10 +409,12 @@ const server = createServer(async (req, res) => {
       const touched = new Set();
       const applied = [];
       for (const t of targets) {
-        const parent = t.mateName.includes("/") ? t.mateName.split("/")[0] : null;
-        const bare = parent ? t.mateName.slice(parent.length + 1) : t.mateName;
+        const slash = t.mateName.indexOf("/");
+        const parent = slash >= 0 ? t.mateName.slice(0, slash) : null;
+        const bare = slash >= 0 ? t.mateName.slice(slash + 1) : t.mateName;
+        const norm = (x) => String(x ?? "").replace(/\s*<\d+>\s*$/, "").trim();
         for (const [thisEid, entry] of mateCache.byEid) {
-          if ((entry.label || null) !== parent) continue;
+          if (norm(entry.label) !== norm(parent)) continue;
           const mv = entry.list.find((m) => String(m.mateName ?? "") === bare);
           if (!mv) continue;
           const field = drivableFields(mv)[0];
