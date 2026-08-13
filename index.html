@@ -202,10 +202,10 @@
     </div>
 
     <div class="row">
-      <button id="init" class="primary">Initialize</button>
+      <button id="init" class="primary" title="Verify every mate name and read its limits. Shortcut: LB + Start">Initialize</button>
       <span id="initState" class="pill">not initialized</span>
       <button id="verify" title="Re-read the assembly and flag any joint whose value did not actually change">Verify</button>
-      <button id="home">Home all</button>
+      <button id="home" title="Ramp every rate joint back to 0°. Shortcut: LB + Back">Home all</button>
       <button id="logout" style="margin-left:auto">Disconnect</button>
     </div>
 
@@ -213,8 +213,9 @@
       Type each mate name exactly as Onshape reports it, then press
       <b>Initialize</b> &mdash; it checks the mate exists, is drivable, and reads its
       limits. Editing a name marks the table dirty and you must Initialize again.
-      Hold <b>LB</b> to move anything; <b>LB+Back</b> homes. Sticks integrate as
-      speed; triggers map straight onto the joint's range.
+      Hold <b>LB</b> to move anything. <b>LB+Back</b> homes, <b>LB+Start</b>
+      re-initializes. Sticks integrate as speed; triggers map straight onto the
+      joint's range.
     </p>
 
     <script>
@@ -266,7 +267,11 @@
       // Per-control, not global: sticks here rest slightly off-centre, triggers
       // rest hard against zero and a wide band would only cost usable travel.
       const DZ = { stick: 0.2, trigger: 0.12 };
-      const ENABLE_BUTTON = 4, HOME_BUTTON = 8;
+      // Standard mapping. Both shortcuts sit behind the deadman: LB+Back homes,
+      // LB+Start re-initializes. Requiring LB is not about safety for the read
+      // that Initialize does — it is so neither fires from a pad on a desk, and
+      // so the two gestures are learned as one pattern.
+      const ENABLE_BUTTON = 4, HOME_BUTTON = 8, INIT_BUTTON = 9;
       const HOME_RATE = 30, HOME_TOL = 0.05, MAX_DT = 0.1;
       const FULL_RANGE_SECONDS = 3;   // full deflection crosses the joint in ~3s
       const FALLBACK_RATE = 60;       // deg/s when a mate declares no limits
@@ -644,7 +649,7 @@
         return FALLBACK_RATE;
       }
 
-      let last = 0, homing = false, homePrev = false, everPad = false, padName = "";
+      let last = 0, homing = false, homePrev = false, initPrev = false, everPad = false, padName = "";
       $("home").onclick = () => { if (initialized && !dirty) homing = true; };
 
       function tick(now) {
@@ -658,7 +663,14 @@
 
         const enabled = pad.buttons[ENABLE_BUTTON]?.pressed ?? false;
         const homeDown = pad.buttons[HOME_BUTTON]?.pressed ?? false;
+        const initDown = pad.buttons[INIT_BUTTON]?.pressed ?? false;
         const live = enabled && initialized && !dirty && !READONLY;
+
+        // LB+Start re-initializes. Rising edge only, and never while one is
+        // already running — Initialize is several round trips and re-entering it
+        // would interleave two sets of results.
+        if (enabled && initDown && !initPrev && !$("init").disabled) $("init").click();
+        initPrev = initDown;
 
         // Home never bypasses the deadman: it is the largest motion the arm
         // makes and the one most likely to swing it through something.
@@ -715,9 +727,9 @@
         const n = SOURCES.filter((s) => S[s.id].ok).length;
         if (READONLY) setBar("pad","bad","Open a workspace, not a version — versions are read-only.");
         else if (homing) setBar("pad","warn",`Homing to 0° at ${HOME_RATE}°/s — move a stick to cancel`);
-        else if (!initialized || dirty) setBar("pad","warn", padName + " — press Initialize before driving");
+        else if (!initialized || dirty) setBar("pad","warn", padName + " — Initialize before driving (LB+Start)");
         else if (enabled) setBar("pad","ok", `Deadman held — ${n} joint${n===1?"":"s"} live`);
-        else setBar("pad","warn", padName + " — hold LB to move (LB+Back homes)");
+        else setBar("pad","warn", padName + " — hold LB to move (LB+Back homes, LB+Start initializes)");
       }
 
       refreshAuth();
