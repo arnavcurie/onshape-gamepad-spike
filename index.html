@@ -176,11 +176,26 @@
     <script>
       // Onshape hands the panel its context on the query string, so the app
       // follows whatever model is open with no configuration at all.
+      // Onshape supplies the document context differently per surface, and the
+      // difference is easy to miss:
+      //
+      //   Element TAB          gets documentId / workspaceId / elementId on the
+      //                        query string automatically, but supports no
+      //                        placeholder templates.
+      //   Element RIGHT PANEL  gets only server/companyId/userId/locale/clientId
+      //                        by default. The document context must be put in
+      //                        the action URL yourself, via {$documentId},
+      //                        {$workspaceOrVersion}, {$workspaceOrVersionId},
+      //                        {$elementId}.
+      //
+      // Accept both shapes so the same page works in either extension type.
       const Q = new URLSearchParams(location.search);
+      const wvmRaw = (Q.get("wvm") || Q.get("workspaceOrVersion") || "").toLowerCase();
+      const wvmFromTemplate = wvmRaw.startsWith("v") ? "v" : wvmRaw.startsWith("w") ? "w" : "";
       const CTX = {
         did: Q.get("documentId") || "",
-        wvm: Q.get("workspaceId") ? "w" : (Q.get("versionId") ? "v" : "w"),
-        wvmid: Q.get("workspaceId") || Q.get("versionId") || "",
+        wvm: wvmFromTemplate || (Q.get("workspaceId") ? "w" : Q.get("versionId") ? "v" : "w"),
+        wvmid: Q.get("wvmid") || Q.get("workspaceOrVersionId") || Q.get("workspaceId") || Q.get("versionId") || "",
         eid: Q.get("elementId") || "",
       };
       const READONLY = CTX.wvm !== "w";   // versions are immutable
@@ -284,7 +299,17 @@
 
       // ---- initialize ------------------------------------------------------
       $("init").onclick = async () => {
-        if (!CTX.did || !CTX.eid) { setBar("auth","bad","No Onshape context in the URL — open this from the assembly panel."); return; }
+        if (!CTX.did || !CTX.eid) {
+          // Say what actually arrived. "No context" alone sent us hunting the
+          // wrong thing once already; the received keys name the real problem.
+          const got = [...Q.keys()];
+          setBar("auth", "bad",
+            "No document context in the URL. The extension's action URL needs the " +
+            "placeholders:<br><code style='font-size:10px'>?documentId={$documentId}&amp;wvm={$workspaceOrVersion}" +
+            "&amp;wvmid={$workspaceOrVersionId}&amp;elementId={$elementId}</code><br>" +
+            "Received: " + (got.length ? got.join(", ") : "nothing"));
+          return;
+        }
         $("init").disabled = true;
         const prev = $("initState").textContent;
         $("initState").textContent = "checking…"; $("initState").className = "pill";
