@@ -8,39 +8,72 @@
       /* Onshape brand palette so the panel sits inside the product rather than
          beside it: cobalt #0A3AA1, green-blue #1B5FAA, baby blue #90CEF1,
          mikado #FFC20E. */
+      /* Light is the default and the base, deliberately: the panel sits inside
+         Onshape's own light chrome. Dark is opt-in via the toggle, and borrows
+         the glass palette from the CLI's xbox-pad.html so the two surfaces of
+         this project look like one thing. OS preference is not consulted —
+         the spec asks for white unless the user says otherwise. */
       :root {
+        color-scheme: light;
         --cobalt:#0A3AA1; --blue:#1B5FAA; --sky:#90CEF1; --yellow:#FFC20E;
         --ink:#16202C; --muted:#5C6B7C; --faint:#8B98A6;
         --paper:#FFFFFF; --panel:#F2F6FA; --rule:#D8E1EA;
         --ok:#14683F; --ok-bg:#E3F3EA; --bad:#A3271F; --bad-bg:#FAE7E5;
         --warn:#8A5A0B; --warn-bg:#FFF3D6;
+        --body-bg: var(--panel);
+        --glass: none;
       }
-      @media (prefers-color-scheme: dark) {
-        :root:not([data-theme="light"]) {
-          --ink:#E6ECF3; --muted:#93A1B0; --faint:#74818F;
-          --paper:#161C24; --panel:#1C242E; --rule:#2A3540;
-          --blue:#6FA8E6; --sky:#4E7FB5; --cobalt:#86B4F0;
-          --ok:#62D69C; --ok-bg:#10301F; --bad:#FF8C86; --bad-bg:#3A1A18;
-          --warn:#F0C674; --warn-bg:#33280F;
-        }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        /* xbox-pad.html's tokens, verbatim where they map */
+        --ink:#E9EDF2; --muted:#8B94A3; --faint:#6E7887;
+        --paper:rgba(255,255,255,.045);          /* --panel  in xbox-pad.html */
+        --panel:#0E1013;                          /* --bg     in xbox-pad.html */
+        --rule:rgba(255,255,255,.09);             /* --panel-line */
+        --blue:#5CC8FF; --cobalt:#9CDCFF; --sky:#2C6C93; --yellow:#F0C674;
+        --ok:#58D7A0; --ok-bg:rgba(88,215,160,.10);
+        --bad:#FF7B7B; --bad-bg:rgba(255,123,123,.10);
+        --warn:#F0C674; --warn-bg:rgba(240,198,116,.10);
+        /* the two ambient washes that give xbox-pad.html its depth */
+        --body-bg:
+          radial-gradient(1100px 620px at 18% -12%, #232A33 0%, transparent 60%),
+          radial-gradient(900px 560px at 88% 8%, #1B2B33 0%, transparent 55%),
+          #0E1013;
+        --glass: blur(22px) saturate(140%);
       }
       * { box-sizing:border-box; }
       body {
-        margin:0; padding:.7rem; color:var(--ink); background:var(--panel);
+        margin:0; padding:.7rem; color:var(--ink);
+        background:var(--body-bg); background-attachment:fixed;
         font:13px/1.45 ui-sans-serif,"Segoe UI",system-ui,sans-serif;
       }
-      h1 { font-size:.8rem; margin:0 0 .5rem; font-weight:600; }
+      /* Heading and toggle share one line, toggle pushed right. */
+      h1 {
+        font-size:.8rem; margin:0 0 .5rem; font-weight:600;
+        display:flex; align-items:center; gap:.5rem;
+      }
       h1 b { color:var(--blue); }
+      h1 .spacer { margin-left:auto; }
+      #theme {
+        font:inherit; font-size:11px; line-height:1; padding:.28rem .5rem;
+        border-radius:99px; cursor:pointer; white-space:nowrap;
+        border:1px solid var(--rule); background:var(--paper); color:var(--muted);
+        backdrop-filter:var(--glass); -webkit-backdrop-filter:var(--glass);
+      }
+      #theme:hover { color:var(--blue); border-color:var(--blue); }
+      #theme:focus-visible { outline:2px solid var(--yellow); outline-offset:1px; }
       h2 { font-size:.62rem; letter-spacing:.13em; text-transform:uppercase;
            color:var(--faint); margin:.9rem 0 .4rem; font-weight:600; }
 
       .bar { padding:.45rem .65rem; border-radius:6px; font-size:12px;
-             border:1px solid var(--rule); background:var(--paper); margin-bottom:.5rem; }
+             border:1px solid var(--rule); background:var(--paper); margin-bottom:.5rem;
+             backdrop-filter:var(--glass); -webkit-backdrop-filter:var(--glass); }
       .bar.ok  { color:var(--ok);  border-color:var(--ok);  background:var(--ok-bg); }
       .bar.warn{ color:var(--warn);border-color:var(--warn);background:var(--warn-bg); }
       .bar.bad { color:var(--bad); border-color:var(--bad); background:var(--bad-bg); }
 
-      .card { background:var(--paper); border:1px solid var(--rule); border-radius:8px; padding:.5rem; }
+      .card { background:var(--paper); border:1px solid var(--rule); border-radius:8px; padding:.5rem;
+              backdrop-filter:var(--glass); -webkit-backdrop-filter:var(--glass); }
       svg { display:block; width:100%; height:auto; }
       .shell{fill:var(--panel);stroke:var(--rule);stroke-width:1.4}
       .well {fill:var(--panel);stroke:var(--rule)}
@@ -90,7 +123,11 @@
     </style>
   </head>
   <body>
-    <h1><b>Xbox Controller</b> &mdash; joint bindings</h1>
+    <h1>
+      <b>Xbox Controller</b> &mdash; joint bindings
+      <span class="spacer"></span>
+      <button id="theme" type="button" aria-pressed="false" title="Switch theme">&#9789; Dark</button>
+    </h1>
 
     <div id="auth" class="bar warn">Checking Onshape connection&hellip;</div>
     <div id="pad" class="bar warn">Press any button on the controller&hellip;</div>
@@ -232,6 +269,30 @@
       const STORE = "onshape-xbox-bindings-v2:" + CTX.eid;
 
       const $ = (id) => document.getElementById(id);
+
+      // ---- theme -----------------------------------------------------------
+      // Light is the default and OS preference is ignored, per spec. Persisting
+      // it turned out to be free — localStorage is the same one-line API as a
+      // session-only store — so the choice survives a browser restart. Swap
+      // localStorage for sessionStorage below to get the reset-on-shutdown
+      // behaviour instead; nothing else changes.
+      const THEME_KEY = "onshape-xbox-theme";
+      function applyTheme(mode) {
+        const dark = mode === "dark";
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+        const b = $("theme");
+        b.innerHTML = dark ? "☀ Light" : "☽ Dark";
+        b.setAttribute("aria-pressed", String(dark));
+        b.title = dark ? "Switch to light theme" : "Switch to dark theme";
+      }
+      let theme = "light";
+      try { theme = localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light"; } catch {}
+      applyTheme(theme);
+      $("theme").addEventListener("click", () => {
+        theme = theme === "dark" ? "light" : "dark";
+        applyTheme(theme);
+        try { localStorage.setItem(THEME_KEY, theme); } catch {}
+      });
       const B = {};   // per-source binding: { joint, scale }
       const S = {};   // per-source runtime: { commanded, info, ok, posted, dirtyVal }
       SOURCES.forEach((s) => { B[s.id] = { joint:"", scale:1 }; S[s.id] = { commanded:0, info:null, ok:false, posted:0 }; });
