@@ -404,11 +404,19 @@
           const r = await fetch(`/api/mates?did=${CTX.did}&wvm=${CTX.wvm}&wvmid=${CTX.wvmid}&eid=${CTX.eid}`);
           const j = await r.json();
           if (!r.ok) throw new Error(j.error || "failed");
-          // Match the way the drive path does, or the two stages disagree about
-          // what a name means: Onshape's instance names carry an occurrence
-          // suffix ("Armatron_Grip <1>"), so accept it typed either way.
+          // Exact match first, then a suffix-insensitive match but ONLY when it
+          // is unambiguous. Onshape's occurrence suffix ("Armatron_Grip <1>") is
+          // noise most of the time, but when two different sub-assemblies share
+          // a base name it is the only thing telling them apart — so collapsing
+          // it blindly would silently bind the wrong one.
           const normName = (x) => String(x ?? "").replace(/\s*<\d+>\s*(?=\/|$)/g, "").trim();
-          const byName = new Map(j.mates.map((m) => [normName(m.mateName), m]));
+          const exact = new Map(j.mates.map((m) => [m.mateName, m]));
+          const loose = new Map();
+          for (const m of j.mates) {
+            const k = normName(m.mateName);
+            loose.set(k, loose.has(k) ? "AMBIGUOUS" : m);
+          }
+          const lookup = (typed) => exact.get(typed) ?? loose.get(normName(typed));
 
           let bad = 0, good = 0;
           for (const s of SOURCES) {
@@ -424,7 +432,11 @@
               cell.textContent = why; cell.title = tip;
               tr.classList.add("bad"); inp.classList.add("err"); inp.title = tip;
             };
-            const m = byName.get(normName(name));
+            const m = lookup(name);
+            if (m === "AMBIGUOUS") {
+              fail("ambiguous", "More than one sub-assembly matches this name. Include the occurrence suffix to say which, e.g. \"Armatron_Grip <2>/Mate\".");
+              bad++; continue;
+            }
             if (!m) {
               fail("no such mate", "No mate with this name in the assembly. Names are case-sensitive and must match exactly.");
               bad++; continue;
@@ -457,7 +469,13 @@
             ? ` <b>Sub-assemblies could not be listed:</b> ${j.subError} — nested bindings will all read "no such mate".`
             : subs.length
               ? " Sub-assemblies: " + subs.map((s) =>
-                  `<b>${s.name}</b>` + (s.drivable ? ` (${s.mateCount} mates)` : " — other document, not drivable")
+                  `<b>${s.name}</b>` + (s.drivable
+                    ? ` (${s.mateCount} mates` +
+                      // Two occurrences share one element, so they share one set
+                      // of mate values — driving one moves both. Say so, rather
+                      // than letting it be discovered.
+                      (s.occurrences > 1 ? `, ${s.occurrences} copies — driving moves all of them` : "") + ")"
+                    : " — other document, not drivable")
                 ).join(", ") + "."
               : " No sub-assemblies in this assembly.";
           setBar("auth", bad ? "warn" : "ok",
@@ -484,14 +502,22 @@
           const r = await fetch(`/api/mates?did=${CTX.did}&wvm=${CTX.wvm}&wvmid=${CTX.wvmid}&eid=${CTX.eid}`);
           const j = await r.json();
           if (!r.ok) throw new Error(j.error || "failed");
-          const byName = new Map(j.mates.map((m) => [m.mateName, m]));
+          // Same lookup rule as Initialize — exact, then unambiguous-loose.
+          const vNorm = (x) => String(x ?? "").replace(/\s*<\d+>\s*(?=\/|$)/g, "").trim();
+          const vExact = new Map(j.mates.map((m) => [m.mateName, m]));
+          const vLoose = new Map();
+          for (const m of j.mates) {
+            const k = vNorm(m.mateName);
+            vLoose.set(k, vLoose.has(k) ? "AMBIGUOUS" : m);
+          }
+          const byName = { get: (n) => vExact.get(n) ?? vLoose.get(vNorm(n)) };
           const stuck = [];
           for (const s of SOURCES) {
             if (!S[s.id].ok) continue;
             const name = B[s.id].joint.trim();
-            const m = byName.get(name);
+            const m = byName.get(name) ?? byName.get(String(name).replace(/\s*<\d+>\s*(?=\/|$)/g, "").trim());
             const tr = $("row-"+s.id), cell = $("ro-"+s.id);
-            if (!m || m.currentDeg == null) continue;
+            if (!m || typeof m !== "object" || m.currentDeg == null) continue;
             const drift = Math.abs(m.currentDeg - S[s.id].commanded);
             // Only meaningful once something was actually commanded away from
             // where it started, so ignore joints still sitting at their seed.

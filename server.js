@@ -312,18 +312,41 @@ const server = createServer(async (req, res) => {
       let subError = null;
       try {
         const def = await onshape(`${base}?includeMateFeatures=false&includeMateConnectors=false`);
-        const seen = new Set();
+
+        // Group by ELEMENT, not by name. Two occurrences of the same
+        // sub-assembly share one element, so they share one set of mate values:
+        // writing to it moves BOTH. Two *different* sub-assemblies can also
+        // happen to share a name, and those must stay separately addressable.
+        const byElement = new Map();
         for (const inst of def?.rootAssembly?.instances ?? []) {
           if (inst?.type !== "Assembly" || !inst?.elementId) continue;
-          const sameDoc = !inst.documentId || inst.documentId === did;
-          // Onshape names instances with an occurrence suffix — "Armatron_Grip <1>".
-          // Nobody wants to type that, so the addressable label drops it. The raw
-          // name is kept so both spellings resolve.
-          const raw = String(inst.name ?? "");
-          const label = raw.replace(/\s*<\d+>\s*$/, "").trim() || raw;
-          if (seen.has(label)) continue;
-          seen.add(label);
-          subs.push({ name: label, rawName: raw, eid: inst.elementId, sameDoc });
+          const e = byElement.get(inst.elementId) ?? {
+            eid: inst.elementId,
+            sameDoc: !inst.documentId || inst.documentId === did,
+            raws: [],
+          };
+          e.raws.push(String(inst.name ?? ""));
+          byElement.set(inst.elementId, e);
+        }
+
+        // Onshape names instances with an occurrence suffix — "Armatron_Grip <1>".
+        // Drop it for readability, but keep it when two distinct elements would
+        // otherwise collide, because then it is the only thing telling them apart.
+        const baseOf = (r) => r.replace(/\s*<\d+>\s*$/, "").trim() || r;
+        const collisions = new Map();
+        for (const e of byElement.values()) {
+          e.base = baseOf(e.raws[0]);
+          collisions.set(e.base, (collisions.get(e.base) ?? 0) + 1);
+        }
+        for (const e of byElement.values()) {
+          subs.push({
+            name: collisions.get(e.base) > 1 ? e.raws[0] : e.base,
+            rawName: e.raws[0],
+            eid: e.eid,
+            sameDoc: e.sameDoc,
+            occurrences: e.raws.length,
+            allNames: e.raws,
+          });
         }
       } catch (e) {
         // Do not swallow this: with no listing, every sub-assembly binding fails
@@ -381,6 +404,7 @@ const server = createServer(async (req, res) => {
         subAssemblies: subs.map((s) => ({
           name: s.name, rawName: s.rawName, drivable: s.sameDoc,
           mateCount: (byEid.get(s.eid)?.list ?? []).length,
+          occurrences: s.occurrences,
         })),
         subError,
       });
@@ -412,9 +436,15 @@ const server = createServer(async (req, res) => {
         const slash = t.mateName.indexOf("/");
         const parent = slash >= 0 ? t.mateName.slice(0, slash) : null;
         const bare = slash >= 0 ? t.mateName.slice(slash + 1) : t.mateName;
+        // Exact label first; fall back to suffix-insensitive only when exactly
+        // one element matches, so two same-named sub-assemblies can never bind
+        // to whichever happened to be enumerated first.
         const norm = (x) => String(x ?? "").replace(/\s*<\d+>\s*$/, "").trim();
-        for (const [thisEid, entry] of mateCache.byEid) {
-          if (norm(entry.label) !== norm(parent)) continue;
+        const entries = [...mateCache.byEid];
+        const exactHit = entries.filter(([, e]) => (e.label ?? null) === parent);
+        const looseHit = entries.filter(([, e]) => norm(e.label) === norm(parent));
+        const candidates = exactHit.length ? exactHit : (looseHit.length === 1 ? looseHit : []);
+        for (const [thisEid, entry] of candidates) {
           const mv = entry.list.find((m) => String(m.mateName ?? "") === bare);
           if (!mv) continue;
           const field = drivableFields(mv)[0];
