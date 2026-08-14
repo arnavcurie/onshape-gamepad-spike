@@ -805,6 +805,12 @@
         // A swept position row must re-acquire afterwards, or the trigger would
         // snap it back the moment the sweep stops.
         st.armed = false;
+        // Paint it here too: the row loop that normally does this sits below
+        // the no-pad early return, so without this the number would freeze
+        // while the joint was actually moving.
+        const cell = $("live-" + row.id);
+        if (cell) cell.textContent = st.commanded.toFixed(2) + "°";
+        setBar("pad", "ok", `Sweeping ${String(row.joint).trim()} — ${lo.toFixed(0)}° … ${hi.toFixed(0)}°, click ■ to stop`);
       }
 
       let last = 0, homing = false, homePrev = false, initPrev = false, everPad = false, padName = "";
@@ -826,6 +832,16 @@
       //----------------------------------------------------------------------------------------------
       function tick(now) {
         requestAnimationFrame(tick);
+
+        // The sweep runs with or WITHOUT a controller — that is the whole point
+        // of it, and it must therefore be stepped before the no-pad early
+        // return below. It was originally placed after it, which meant a sweep
+        // silently did nothing until a pad happened to be awake.
+        if (sweeping) {
+          stepSweep(now);
+          if (now - lastFlush >= MIN_POST_MS) flush();
+        }
+
         const pad = pickPad();
         if (!pad) {
           setBar("pad", everPad ? "bad" : "warn", everPad ? "Controller disconnected." : "Press any button on the controller…");
@@ -911,10 +927,8 @@
         }
         if (homing && allHome) homing = false;
 
-        stepSweep(now);
-        // A sweep is an explicit click, so it writes without the deadman — the
-        // deadman guards the controller, and a sweep has no controller to guard.
-        if ((live || sweeping) && now - lastFlush >= MIN_POST_MS) flush();
+        // Sweeping already stepped and flushed above, before the pad check.
+        if (live && !sweeping && now - lastFlush >= MIN_POST_MS) flush();
 
         // diagram
         const ax = (i) => pad.axes[i] ?? 0;
