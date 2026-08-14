@@ -673,8 +673,10 @@
         for (const row of ROWS) {
           const st = R.get(row.id);
           if (!st?.ok) continue;
-          if (Math.abs(st.commanded - st.posted) < EPSILON_DEG) continue;
-          targets.push({ mateName: String(row.joint).trim(), valueSi: st.commanded * Math.PI / 180, _id: row.id });
+          if (!st.resetPrevious && Math.abs(st.commanded - st.posted) < EPSILON_DEG) continue;
+          const t = { mateName: String(row.joint).trim(), valueSi: st.commanded * Math.PI / 180, _id: row.id };
+          if (st.resetPrevious) t.resetPrevious = true;
+          targets.push(t);
         }
         if (!targets.length) return;
         flushing = true; lastFlush = performance.now();
@@ -703,7 +705,7 @@
             }
             throw new Error(j.error || r.status);
           }
-          for (const { id, v } of sent) R.get(id).posted = v;
+          for (const { id, v } of sent) { const st = R.get(id); st.posted = v; st.resetPrevious = false; }
         } catch (e) {
           setBar("auth","bad","Write failed: " + e.message);
         } finally { flushing = false; }
@@ -807,7 +809,15 @@
           // joint parked at the boundary and manual control locked out.
           const target = clamp(row.home ?? 0, lo, hi);
           const rem = target - st.commanded;
-          if (Math.abs(rem) <= HOME_TOL) st.commanded = target;
+          if (Math.abs(rem) <= HOME_TOL) {
+            // Arrived. For a Ball, the drivable field alone does not define the
+            // pose — ask the server to zero the *Previous orientation fields as
+            // well, once, or the joint sits at 0° and still looks rotated.
+            if (st.info?.jsonType === "Ball" && Math.abs(target) < 1e-9 && !st.didReset) {
+              st.resetPrevious = true; st.didReset = true; st.posted = NaN;  // force a flush
+            }
+            st.commanded = target;
+          }
           else { allHome = false; st.commanded += Math.sign(rem) * Math.min(HOME_RATE * dt, Math.abs(rem)); }
           st.commanded = clamp(st.commanded, lo, hi);
           const cell = $("live-" + row.id);
@@ -846,6 +856,7 @@
         if (!initialized || dirty) { setBar("auth","warn","Initialize before homing."); return; }
         if (READONLY) { setBar("auth","bad","Open a workspace, not a version."); return; }
         sweeping = null; paintSweep(); homing = true; homingFromPad = false;
+        for (const r of ROWS) { const st = R.get(r.id); if (st) { st.didReset = false; st.resetPrevious = false; } }
       };
 
       //----------------------------------------------------------------------------------------------
@@ -895,7 +906,10 @@
 
         // Home never bypasses the deadman: it is the largest motion the arm
         // makes and the one most likely to swing it through something.
-        if (live && homeDown && !homePrev && !homing) { homing = true; homingFromPad = true; }
+        if (live && homeDown && !homePrev && !homing) {
+          homing = true; homingFromPad = true;
+          for (const r of ROWS) { const st = R.get(r.id); if (st) { st.didReset = false; st.resetPrevious = false; } }
+        }
         homePrev = homeDown;
         if (!enabled && homing && homingFromPad) homing = false;
 

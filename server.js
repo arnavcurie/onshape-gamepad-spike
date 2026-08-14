@@ -575,7 +575,18 @@ const server = createServer(async (req, res) => {
         const field = drivableFields(mv)[0];
         if (!field) continue;
         mv[field] = t.valueSi;
-        applied.push({ mateName: t.mateName, field, valueSi: t.valueSi });
+        // A Ball mate's orientation is NOT captured by its one drivable field.
+        // The rest lives in the *Previous fields, and homing rotationZ to 0 can
+        // still leave the joint visibly rotated — measured at rotationZ=0.000°
+        // with rotationZPrevious=142.250°. Those fields ARE writable (unlike a
+        // rotationY that was never returned, which is silently dropped), so
+        // homing zeroes them too. Only on request: during ordinary driving they
+        // must round-trip untouched, because they are how the solver tracks the
+        // path it took.
+        if (t.resetPrevious) {
+          for (const k of Object.keys(mv)) if (k.endsWith("Previous")) mv[k] = 0;
+        }
+        applied.push({ mateName: t.mateName, field, valueSi: t.valueSi, reset: !!t.resetPrevious });
       }
       if (applied.length === 0) return json(res, 200, { ok: true, applied: [] });
 
