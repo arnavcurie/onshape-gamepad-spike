@@ -429,7 +429,15 @@ const server = createServer(async (req, res) => {
           if (!inst?.id) continue;
           nameById.set(inst.id, String(inst.name ?? inst.id));
           if (inst.type === "Assembly") {
-            subs.push({ id: inst.id, name: String(inst.name ?? inst.id) });
+            // elementId and the instance's OWN configuration are both needed to
+            // read its mate limits. Dropping elementId here is what made every
+            // nested mate report "unlimited".
+            subs.push({
+              id: inst.id,
+              name: String(inst.name ?? inst.id),
+              eid: inst.elementId,
+              cfg: inst.configuration && inst.configuration !== "default" ? inst.configuration : "",
+            });
           }
         }
       } catch (e) {
@@ -458,12 +466,21 @@ const server = createServer(async (req, res) => {
       // sub-assembly pass, every nested mate reports "unlimited" no matter what
       // limits it has — which is exactly what it used to do.
       let byId = new Map();
-      const featureElements = [eid, ...new Set(
-        (subs ?? []).map((sub) => sub.eid).filter(Boolean),
-      )];
-      for (const fe of featureElements) {
+      // Each element is fetched with ITS OWN configuration. Passing the
+      // parent's to a sub-assembly is wrong — they are different elements with
+      // different configuration parameters, and the call would 400 or silently
+      // return the wrong variant.
+      const featureElements = [{ fe: eid, fcfg: cfg }];
+      const seenFe = new Set([eid]);
+      for (const sub of subs ?? []) {
+        if (!sub.eid || seenFe.has(sub.eid)) continue;
+        seenFe.add(sub.eid);
+        featureElements.push({ fe: sub.eid, fcfg: sub.cfg });
+      }
+      for (const { fe, fcfg } of featureElements) {
         try {
-          const feats = await onshape(withCfg(`/assemblies/d/${did}/${wvm}/${wvmid}/e/${fe}/features`));
+          const u = `/assemblies/d/${did}/${wvm}/${wvmid}/e/${fe}/features`;
+          const feats = await onshape(fcfg ? `${u}?configuration=${encodeURIComponent(fcfg)}` : u);
           for (const node of feats?.features ?? []) {
             const f = normalizeFeature(node);
             if (f.featureId) byId.set(f.featureId, f);
