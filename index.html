@@ -261,7 +261,6 @@
       // LB, Back and Start are deliberately absent: LB is the deadman and
       // Back/Start are home and initialize. Binding one would be broken by
       // construction, so it is better not to offer it than to explain it later.
-      // Guide is also out — Windows intercepts it for the Game Bar.
       const SOURCES = [
         { id:"leftStickX",   label:"left stick X",  kind:"stick"   },
         { id:"leftStickY",   label:"left stick Y",  kind:"stick"   },
@@ -280,6 +279,9 @@
         { id:"dpadDown",  label:"D-pad down",  kind:"button", btn: 13 },
         { id:"dpadLeft",  label:"D-pad left",  kind:"button", btn: 14 },
         { id:"dpadRight", label:"D-pad right", kind:"button", btn: 15 },
+        // Offered, but Windows usually claims this one for the Game Bar before
+        // the page sees it. Labelled so a dead binding is not a mystery.
+        { id:"btnGuide", label:"Guide (OS may intercept)", kind:"button", btn: 16 },
       ];
 
       // Per-control, not global: sticks here rest slightly off-centre, triggers
