@@ -54,7 +54,7 @@ let token = null;        // { access_token, refresh_token, expires_at }
 // One array, the PARENT's — nested mates included, tagged with the occurrence
 // they belong to. See /api/mates for why the sub-assembly's own element is
 // never written.
-let mateCache = null;    // { key, list, nameById }
+let mateCache = null;    // { key, list, nameById, snapshot }
 
 //----------------------------------------------------------------------------------------------------
 // authed
@@ -455,7 +455,18 @@ const server = createServer(async (req, res) => {
         return p.map((id) => nameById.get(id) ?? id).join("/");
       };
 
-      mateCache = { key: `${did}/${wvm}/${wvmid}/${eid}/${cfg}`, list, nameById };
+      // Full-fidelity snapshot of every numeric field, taken at Initialize.
+      // Restoring a joint by its one drivable field cannot guarantee the pose —
+      // a Ball's orientation also lives in its *Previous fields — so Home
+      // replays the captured values verbatim instead of re-deriving them.
+      const snapshot = new Map();
+      for (const mv of list) {
+        const nums = {};
+        for (const [k, v] of Object.entries(mv)) if (typeof v === "number") nums[k] = v;
+        const pp = Array.isArray(mv.ownerOccurrencePath) ? mv.ownerOccurrencePath : [];
+        snapshot.set(`${pp.join("/")}|${String(mv.mateName ?? "")}`, nums);
+      }
+      mateCache = { key: `${did}/${wvm}/${wvmid}/${eid}/${cfg}`, list, nameById, snapshot };
 
       // Limits are a nice-to-have: if the features call fails (permissions, a
       // version rather than a workspace), still return the drivable list rather
@@ -507,6 +518,8 @@ const server = createServer(async (req, res) => {
           jsonType: mv.jsonType,
           fields,
           currentDeg: fields.length ? Number((mv[fields[0]] * RAD).toFixed(4)) : null,
+          // What Home returns to when the row's Home cell is left blank.
+          snapshotDeg: fields.length ? Number((mv[fields[0]] * RAD).toFixed(4)) : null,
           // Limits come from the parent's feature list, which only describes the
           // parent's own mates. A nested one simply has none to report.
           limits: limitsFor(byId.get(mv.featureId), fields[0]),
@@ -585,6 +598,14 @@ const server = createServer(async (req, res) => {
         // path it took.
         if (t.resetPrevious) {
           for (const k of Object.keys(mv)) if (k.endsWith("Previous")) mv[k] = 0;
+        }
+        // Verbatim restore of everything captured at Initialize — the only way
+        // to guarantee a Ball returns to the same POSE rather than merely the
+        // same rotationZ.
+        if (t.restoreSnapshot) {
+          const pp = Array.isArray(mv.ownerOccurrencePath) ? mv.ownerOccurrencePath : [];
+          const snap = mateCache.snapshot?.get(`${pp.join("/")}|${String(mv.mateName ?? "")}`);
+          if (snap) for (const [k, v] of Object.entries(snap)) mv[k] = v;
         }
         applied.push({ mateName: t.mateName, field, valueSi: t.valueSi, reset: !!t.resetPrevious });
       }

@@ -211,6 +211,9 @@
       limits, and fills <b>Actual</b> from the model. Press it again after driving
       and it also reports any joint that did <i>not</i> move where it was told.
       Editing a name marks the table dirty and you must Initialize again.
+      <b>Home</b> left blank returns that joint to exactly the pose captured at
+      the last Initialize &mdash; for a Ball that is the only way to guarantee the
+      orientation. Type a number to override.
       <b>Several rows may use the same input</b> &mdash; give each its own mate and
       Scale, so one control can drive two joints in opposite directions.
       Hold <b>LB</b> to move anything. <b>LB+Back</b> homes, <b>LB+Start</b>
@@ -369,16 +372,16 @@
         try { raw = JSON.parse(localStorage.getItem(STORE) || "null"); } catch { /* corrupt */ }
         if (Array.isArray(raw)) {
           ROWS = raw.filter((r) => r && SOURCES.some((s) => s.id === r.source))
-                    .map((r) => ({ id: nextId++, source: r.source, joint: String(r.joint ?? ""), scale: Number(r.scale) || 1, home: Number(r.home) || 0 }));
+                    .map((r) => ({ id: nextId++, source: r.source, joint: String(r.joint ?? ""), scale: Number(r.scale) || 1, home: (r.home === "" || r.home == null || r.home === 0) ? "" : Number(r.home) }));
         } else if (raw && typeof raw === "object") {
           // Migrate the old shape — one entry keyed by input — rather than
           // silently dropping saved bindings.
           ROWS = SOURCES.filter((s) => raw[s.id])
-            .map((s) => ({ id: nextId++, source: s.id, joint: String(raw[s.id].joint ?? ""), scale: Number(raw[s.id].scale) || 1, home: 0 }));
+            .map((s) => ({ id: nextId++, source: s.id, joint: String(raw[s.id].joint ?? ""), scale: Number(raw[s.id].scale) || 1, home: "" }));
         }
         // Seed with one row per input so the table opens looking familiar; extra
         // rows are added only where wanted.
-        if (!ROWS.length) ROWS = SOURCES.map((s) => ({ id: nextId++, source: s.id, joint: "", scale: 1, home: 0 }));
+        if (!ROWS.length) ROWS = SOURCES.map((s) => ({ id: nextId++, source: s.id, joint: "", scale: 1, home: "" }));
         for (const r of ROWS) if (!R.has(r.id)) R.set(r.id, { commanded: 0, info: null, ok: false, posted: 0, seed: 0 });
       }
       const persist = () => localStorage.setItem(STORE, JSON.stringify(
@@ -403,7 +406,7 @@
             `<td class="src"><select data-f="source">${optionsHtml(r.source)}</select></td>` +
             `<td><input data-f="joint" placeholder="mate  or  Sub &lt;1&gt;/mate" title="Top-level mates take their bare name. A mate inside a sub-assembly is addressed by the instance name as the CAD tree shows it, e.g. Armatron_Grip &lt;1&gt;/Revolute_Grip." value="${String(r.joint).replace(/"/g,"&quot;")}"></td>` +
             `<td><input data-f="scale" class="num" type="number" step="0.1" title="Multiplies the speed. -1 drives this mate opposite to another on the same input." value="${r.scale}"></td>` +
-            `<td><input data-f="home" class="num" type="number" step="5" title="Where LB+Back sends this joint, clamped into its limits. The mate's zero is often an END of travel, not a sensible rest pose." value="${r.home ?? 0}"></td>` +
+            `<td><input data-f="home" class="num" type="number" step="5" placeholder="snap" title="Where Home sends this joint. LEAVE BLANK to return to exactly the pose captured at Initialize — for a Ball that is the only way to guarantee the orientation, since it is not described by one number. Type a value to override; it is clamped into the mate's limits." value="${r.home === "" || r.home == null ? "" : r.home}"></td>` +
             `<td class="ro" id="ro-${r.id}">&mdash;</td>` +
             `<td class="live" id="live-${r.id}">&mdash;</td>` +
             `<td class="ro" id="act-${r.id}">&mdash;</td>` +
@@ -426,14 +429,16 @@
             persist();
           });
           tr.querySelector('[data-f="home"]').addEventListener("input", (e) => {
-            r.home = Number(e.target.value) || 0;    // nor does home
+            // "" means snapshot; a number overrides. Blank is not 0.
+            const raw = e.target.value.trim();
+            r.home = raw === "" ? "" : (Number(raw) || 0);
             persist();
           });
           tr.querySelector('[data-f="sweep"]').addEventListener("click", () => toggleSweep(r));
           tr.querySelector('[data-f="del"]').addEventListener("click", () => {
             ROWS = ROWS.filter((x) => x.id !== r.id);
             R.delete(r.id);
-            if (!ROWS.length) ROWS = SOURCES.map((s) => ({ id: nextId++, source: s.id, joint: "", scale: 1, home: 0 }));
+            if (!ROWS.length) ROWS = SOURCES.map((s) => ({ id: nextId++, source: s.id, joint: "", scale: 1, home: "" }));
             for (const x of ROWS) if (!R.has(x.id)) R.set(x.id, { commanded: 0, info: null, ok: false, posted: 0, seed: 0 });
             setDirty(true); persist(); render(); paint();
           });
@@ -461,7 +466,7 @@
       const paint = () => { for (const r of ROWS) $("row-"+r.id)?.classList.toggle("unbound", !String(r.joint).trim()); };
 
       $("add").addEventListener("click", () => {
-        const r = { id: nextId++, source: SOURCES[0].id, joint: "", scale: 1, home: 0 };
+        const r = { id: nextId++, source: SOURCES[0].id, joint: "", scale: 1, home: "" };
         ROWS.push(r);
         R.set(r.id, { commanded: 0, info: null, ok: false, posted: 0, seed: 0 });
         setDirty(true); persist(); render();
@@ -618,6 +623,7 @@
             st.info = m; st.ok = true; good++;
             st.commanded = actual; st.posted = actual; st.seed = actual;
             st.armed = false;   // position rows must re-acquire after any re-seed
+            st.snapDeg = m.snapshotDeg ?? actual;   // what a blank Home returns to
             cell.textContent = m.limits?.text || "unlimited";
             cell.title = m.limits ? "" : "This mate declares no limits; clamped to ±" + CLAMP_UNLIMITED + "°";
             $("act-"+row.id).textContent = actual.toFixed(2) + "°";
@@ -673,9 +679,10 @@
         for (const row of ROWS) {
           const st = R.get(row.id);
           if (!st?.ok) continue;
-          if (!st.resetPrevious && Math.abs(st.commanded - st.posted) < EPSILON_DEG) continue;
+          if (!st.resetPrevious && !st.restoreSnapshot && Math.abs(st.commanded - st.posted) < EPSILON_DEG) continue;
           const t = { mateName: String(row.joint).trim(), valueSi: st.commanded * Math.PI / 180, _id: row.id };
           if (st.resetPrevious) t.resetPrevious = true;
+          if (st.restoreSnapshot) t.restoreSnapshot = true;
           targets.push(t);
         }
         if (!targets.length) return;
@@ -705,7 +712,7 @@
             }
             throw new Error(j.error || r.status);
           }
-          for (const { id, v } of sent) { const st = R.get(id); st.posted = v; st.resetPrevious = false; }
+          for (const { id, v } of sent) { const st = R.get(id); st.posted = v; st.resetPrevious = false; st.restoreSnapshot = false; }
         } catch (e) {
           setBar("auth","bad","Write failed: " + e.message);
         } finally { flushing = false; }
@@ -807,14 +814,18 @@
           // The row's own Home, CLAMPED INTO ITS RANGE. An unreachable target
           // never "arrives", so homing would stay engaged forever with the
           // joint parked at the boundary and manual control locked out.
-          const target = clamp(row.home ?? 0, lo, hi);
+          const usingSnapshot = row.home === "" || row.home == null;
+          const target = clamp(usingSnapshot ? (st.snapDeg ?? 0) : row.home, lo, hi);
           const rem = target - st.commanded;
           if (Math.abs(rem) <= HOME_TOL) {
             // Arrived. For a Ball, the drivable field alone does not define the
             // pose — ask the server to zero the *Previous orientation fields as
             // well, once, or the joint sits at 0° and still looks rotated.
-            if (st.info?.jsonType === "Ball" && Math.abs(target) < 1e-9 && !st.didReset) {
-              st.resetPrevious = true; st.didReset = true; st.posted = NaN;  // force a flush
+            if (!st.didReset) {
+              st.didReset = true;
+              st.posted = NaN;                       // bypass the epsilon gate for this one
+              if (usingSnapshot) st.restoreSnapshot = true;   // guaranteed pose, all fields
+              else if (st.info?.jsonType === "Ball" && Math.abs(target) < 1e-9) st.resetPrevious = true;
             }
             st.commanded = target;
           }
@@ -856,7 +867,7 @@
         if (!initialized || dirty) { setBar("auth","warn","Initialize before homing."); return; }
         if (READONLY) { setBar("auth","bad","Open a workspace, not a version."); return; }
         sweeping = null; paintSweep(); homing = true; homingFromPad = false;
-        for (const r of ROWS) { const st = R.get(r.id); if (st) { st.didReset = false; st.resetPrevious = false; } }
+        for (const r of ROWS) { const st = R.get(r.id); if (st) { st.didReset = false; st.resetPrevious = false; st.restoreSnapshot = false; } }
       };
 
       //----------------------------------------------------------------------------------------------
@@ -908,7 +919,7 @@
         // makes and the one most likely to swing it through something.
         if (live && homeDown && !homePrev && !homing) {
           homing = true; homingFromPad = true;
-          for (const r of ROWS) { const st = R.get(r.id); if (st) { st.didReset = false; st.resetPrevious = false; } }
+          for (const r of ROWS) { const st = R.get(r.id); if (st) { st.didReset = false; st.resetPrevious = false; st.restoreSnapshot = false; } }
         }
         homePrev = homeDown;
         if (!enabled && homing && homingFromPad) homing = false;
