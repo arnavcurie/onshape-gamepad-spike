@@ -97,6 +97,7 @@
       tr.unbound td:not(.src){opacity:.45}
       /* A failed row is tinted whole — the table is the single place binding
          state is reported, so a failure has to say so where the user is looking. */
+      tr.waiting td.live{color:var(--warn);font-weight:600}
       tr.bad td{background:var(--bad-bg)}
       tr.bad td.src{color:var(--bad)}
       tr.bad td.ro{color:var(--bad);font-weight:600}
@@ -302,6 +303,13 @@
       const FULL_RANGE_SECONDS = 3;   // full deflection crosses the joint in ~3s
       const FALLBACK_RATE = 60;       // deg/s when a mate declares no limits
       const CLAMP_UNLIMITED = 180;
+      // Soft takeover for position controls. A trigger cannot be moved to match
+      // the joint, so on the first sample its position would snap the joint to
+      // wherever the trigger happens to be — a released trigger maps to the LOW
+      // end, so a jaw sitting at its high end jumps its whole travel. Instead
+      // the binding stays inert until the trigger's implied angle passes within
+      // this much of where the joint already is, then picks up smoothly.
+      const TAKEOVER_DEG = 2;
       const EPSILON_DEG = 0.15;       // ignore drift below this
       const MIN_POST_MS = 150;        // cap writes independent of input rate
       const STORE = "onshape-xbox-bindings-v2:" + CTX.eid;
@@ -600,6 +608,7 @@
 
             st.info = m; st.ok = true; good++;
             st.commanded = actual; st.posted = actual; st.seed = actual;
+            st.armed = false;   // position rows must re-acquire after any re-seed
             cell.textContent = m.limits?.text || "unlimited";
             cell.title = m.limits ? "" : "This mate declares no limits; clamped to ±" + CLAMP_UNLIMITED + "°";
             $("act-"+row.id).textContent = actual.toFixed(2) + "°";
@@ -816,7 +825,14 @@
               // Position: a trigger stays where you put it, so travel maps
               // straight onto the joint's range. Negative scale flips the ends.
               const t = clamp(row.scale < 0 ? 1 - Math.abs(v) : Math.abs(v), 0, 1);
-              st.commanded = lo + t * (hi - lo);
+              const wanted = lo + t * (hi - lo);
+              // Soft takeover: hold until the trigger passes through the joint's
+              // current angle, so the first squeeze cannot teleport it.
+              if (!st.armed) {
+                if (Math.abs(wanted - st.commanded) <= TAKEOVER_DEG) st.armed = true;
+                else st.pickup = wanted;      // for the readout
+              }
+              if (st.armed) st.commanded = wanted;
             } else if (homing) {
               // Home to the mate's zero CLAMPED INTO ITS RANGE. An unreachable
               // target never "arrives", so homing would stay engaged forever
@@ -832,7 +848,17 @@
           }
 
           const liveCell = $("live-"+row.id);
-          if (liveCell) liveCell.textContent = st.ok ? st.commanded.toFixed(2) + "°" : "—";
+          const waiting = st.ok && s.kind === "trigger" && !st.armed;
+          if (liveCell) {
+            liveCell.textContent = !st.ok ? "—"
+              : waiting ? `${st.commanded.toFixed(2)}° · hold` : st.commanded.toFixed(2) + "°";
+            liveCell.title = waiting
+              ? `Not engaged yet. The trigger currently asks for ${(st.pickup ?? 0).toFixed(1)}°, the joint is at ` +
+                `${st.commanded.toFixed(1)}°. Move the trigger through that value to pick it up — this is what stops ` +
+                `the first squeeze teleporting the joint.`
+              : "";
+          }
+          $("row-"+row.id)?.classList.toggle("waiting", !!waiting);
           $("row-"+row.id)?.classList.toggle("active", st.ok && live && Math.abs(v) > 0);
         }
         if (homing && allHome) homing = false;
