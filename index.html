@@ -791,6 +791,31 @@
           if (b) b.innerHTML = sweeping?.id === row.id ? "&#9632;" : "&#9655;";
         }
       }
+      // Homing, like sweeping, must work with no controller attached — the
+      // Home button is an explicit click. Both therefore run ABOVE the no-pad
+      // early return in tick(); leaving either inside the row loop made it
+      // silently do nothing whenever the pad was asleep.
+      function stepHoming(dt) {
+        let allHome = true;
+        for (const row of ROWS) {
+          const st = R.get(row.id);
+          if (!st?.ok) continue;
+          if (srcOf(row).kind === "trigger") continue;   // a trigger re-asserts itself
+          const [lo, hi] = boundsOf(row.id);
+          // The row's own Home, CLAMPED INTO ITS RANGE. An unreachable target
+          // never "arrives", so homing would stay engaged forever with the
+          // joint parked at the boundary and manual control locked out.
+          const target = clamp(row.home ?? 0, lo, hi);
+          const rem = target - st.commanded;
+          if (Math.abs(rem) <= HOME_TOL) st.commanded = target;
+          else { allHome = false; st.commanded += Math.sign(rem) * Math.min(HOME_RATE * dt, Math.abs(rem)); }
+          st.commanded = clamp(st.commanded, lo, hi);
+          const cell = $("live-" + row.id);
+          if (cell) cell.textContent = st.commanded.toFixed(2) + "°";
+        }
+        if (allHome) homing = false;
+      }
+
       function stepSweep(now) {
         if (!sweeping) return;
         const row = ROWS.find((r) => r.id === sweeping.id);
@@ -814,7 +839,14 @@
       }
 
       let last = 0, homing = false, homePrev = false, initPrev = false, everPad = false, padName = "";
-      $("home").onclick = () => { if (initialized && !dirty) { sweeping = null; paintSweep(); homing = true; } };
+      // A click is explicit and needs no deadman; LB+Back does, and a run
+      // started that way still aborts when LB is released.
+      let homingFromPad = false;
+      $("home").onclick = () => {
+        if (!initialized || dirty) { setBar("auth","warn","Initialize before homing."); return; }
+        if (READONLY) { setBar("auth","bad","Open a workspace, not a version."); return; }
+        sweeping = null; paintSweep(); homing = true; homingFromPad = false;
+      };
 
       //----------------------------------------------------------------------------------------------
       // tick
@@ -833,19 +865,21 @@
       function tick(now) {
         requestAnimationFrame(tick);
 
-        // The sweep runs with or WITHOUT a controller — that is the whole point
-        // of it, and it must therefore be stepped before the no-pad early
-        // return below. It was originally placed after it, which meant a sweep
-        // silently did nothing until a pad happened to be awake.
-        if (sweeping) {
-          stepSweep(now);
-          if (now - lastFlush >= MIN_POST_MS) flush();
-        }
+        // Sweeping and homing both run with or WITHOUT a controller, so both
+        // are stepped before the no-pad early return below. MAX_DT clamps the
+        // gap, which is what makes a shared clock safe here even after the pad
+        // has been away for minutes.
+        const dtAny = last === 0 ? 0 : Math.min((now - last) / 1000, MAX_DT);
+        last = now;
+        if (sweeping) stepSweep(now);
+        else if (homing) stepHoming(dtAny);
+        if ((sweeping || homing) && now - lastFlush >= MIN_POST_MS) flush();
 
         const pad = pickPad();
         if (!pad) {
-          setBar("pad", everPad ? "bad" : "warn", everPad ? "Controller disconnected." : "Press any button on the controller…");
-          last = 0; return;
+          if (!sweeping && !homing)
+            setBar("pad", everPad ? "bad" : "warn", everPad ? "Controller disconnected." : "Press any button on the controller…");
+          return;
         }
         if (!everPad) { everPad = true; padName = pad.id; }
 
@@ -861,12 +895,11 @@
 
         // Home never bypasses the deadman: it is the largest motion the arm
         // makes and the one most likely to swing it through something.
-        if (live && homeDown && !homePrev && !homing) homing = true;
+        if (live && homeDown && !homePrev && !homing) { homing = true; homingFromPad = true; }
         homePrev = homeDown;
-        if (!enabled && homing) homing = false;
+        if (!enabled && homing && homingFromPad) homing = false;
 
-        const dt = last === 0 ? 0 : Math.min((now - last)/1000, MAX_DT);
-        last = now;
+        const dt = dtAny;
 
         // A held trigger is a steady state, not a movement — position controls
         // must not cancel homing or a closed grip would make homing impossible.
@@ -875,7 +908,6 @@
           return s.kind !== "trigger" && dz(raw(pad, s), s.kind) !== 0;
         })) homing = false;
 
-        let allHome = true;
         for (const row of ROWS) {
           const st = R.get(row.id);
           const s = srcOf(row);
@@ -896,16 +928,7 @@
               }
               if (st.armed) st.commanded = wanted;
             } else if (homing) {
-              // The row's own Home, CLAMPED INTO ITS RANGE. Defaulting to the
-              // mate's zero was wrong for joints whose zero is an END of travel
-              // — the jaws (0…90 and −90…0) both homed to an extreme. An
-              // unreachable target also never "arrives", so homing would stay
-              // engaged forever with the joint parked at the boundary.
-              const target = clamp(row.home ?? 0, lo, hi);
-              const rem = target - st.commanded;
-              if (Math.abs(rem) <= HOME_TOL) st.commanded = target;
-              else { allHome = false; st.commanded += Math.sign(rem) * Math.min(HOME_RATE*dt, Math.abs(rem)); }
-              st.commanded = clamp(st.commanded, lo, hi);
+              /* handled by stepHoming(), which runs above the no-pad check */
             } else {
               st.commanded = clamp(st.commanded + v * row.scale * rateOf(row.id) * dt, lo, hi);
             }
@@ -925,7 +948,6 @@
           $("row-"+row.id)?.classList.toggle("waiting", !!waiting);
           $("row-"+row.id)?.classList.toggle("active", st.ok && live && Math.abs(v) > 0);
         }
-        if (homing && allHome) homing = false;
 
         // Sweeping already stepped and flushed above, before the pad check.
         if (live && !sweeping && now - lastFlush >= MIN_POST_MS) flush();
