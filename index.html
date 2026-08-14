@@ -253,18 +253,38 @@
           };
       const READONLY = CTX.wvm !== "w";   // versions are immutable
 
+      // Buttons are rate sources: a button is a stick pinned to full deflection
+      // while held, so "hold A to open, hold B to close" falls out naturally,
+      // and Scale -1 reverses one of them. Position mode makes no sense for a
+      // momentary control — there is no travel to map.
+      //
+      // LB, Back and Start are deliberately absent: LB is the deadman and
+      // Back/Start are home and initialize. Binding one would be broken by
+      // construction, so it is better not to offer it than to explain it later.
+      // Guide is also out — Windows intercepts it for the Game Bar.
       const SOURCES = [
         { id:"leftStickX",   label:"left stick X",  kind:"stick"   },
         { id:"leftStickY",   label:"left stick Y",  kind:"stick"   },
-        { id:"rightStickX",  label:"right stick X", kind:"stick"  },
-        { id:"rightStickY",  label:"right stick Y", kind:"stick"  },
+        { id:"rightStickX",  label:"right stick X", kind:"stick"   },
+        { id:"rightStickY",  label:"right stick Y", kind:"stick"   },
         { id:"leftTrigger",  label:"left trigger",  kind:"trigger" },
-        { id:"rightTrigger", label:"right trigger", kind:"trigger"},
+        { id:"rightTrigger", label:"right trigger", kind:"trigger" },
+        { id:"btnA",   label:"A button",        kind:"button", btn: 0  },
+        { id:"btnB",   label:"B button",        kind:"button", btn: 1  },
+        { id:"btnX",   label:"X button",        kind:"button", btn: 2  },
+        { id:"btnY",   label:"Y button",        kind:"button", btn: 3  },
+        { id:"btnRB",  label:"RB bumper",       kind:"button", btn: 5  },
+        { id:"btnLS",  label:"left stick click",  kind:"button", btn: 10 },
+        { id:"btnRS",  label:"right stick click", kind:"button", btn: 11 },
+        { id:"dpadUp",    label:"D-pad up",    kind:"button", btn: 12 },
+        { id:"dpadDown",  label:"D-pad down",  kind:"button", btn: 13 },
+        { id:"dpadLeft",  label:"D-pad left",  kind:"button", btn: 14 },
+        { id:"dpadRight", label:"D-pad right", kind:"button", btn: 15 },
       ];
 
       // Per-control, not global: sticks here rest slightly off-centre, triggers
       // rest hard against zero and a wide band would only cost usable travel.
-      const DZ = { stick: 0.2, trigger: 0.12 };
+      const DZ = { stick: 0.2, trigger: 0.12, button: 0 };   // a button has no rest drift
       // Standard mapping. Both shortcuts sit behind the deadman: LB+Back homes,
       // LB+Start re-initializes. Requiring LB is not about safety for the read
       // that Initialize does — it is so neither fires from a pad on a desk, and
@@ -624,6 +644,7 @@
       const dz = (v,k) => { const t = DZ[k]; return Math.abs(v) < t ? 0 : (v - Math.sign(v)*t)/(1-t); };
       const clamp = (v,lo,hi) => Math.min(hi, Math.max(lo, v));
       function raw(pad, s) {
+        if (s.kind === "button") return pad.buttons[s.btn]?.pressed ? 1 : 0;
         switch (s.id) {
           case "leftStickX":  return pad.axes[0] ?? 0;
           case "leftStickY":  return pad.axes[1] ?? 0;
@@ -684,7 +705,7 @@
         // must not cancel homing or a closed grip would make homing impossible.
         if (homing && ROWS.some((row) => {
           const s = srcOf(row);
-          return s.kind === "stick" && dz(raw(pad, s), s.kind) !== 0;
+          return s.kind !== "trigger" && dz(raw(pad, s), s.kind) !== 0;
         })) homing = false;
 
         let allHome = true;
