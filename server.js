@@ -151,29 +151,77 @@ function normalizeFeature(node) {
 //----------------------------------------------------------------------------------------------------
 const RAD = 180 / Math.PI;
 
-function limitsFor(feature) {
+// Limit parameters are named per AXIS, and which pair applies is determined by
+// the mate's drivable field — not guessable. Read off a real revolute:
+//
+//   limitsEnabled   value=true
+//   limitAxialZMin  expr="0 deg"     <- the angular limits
+//   limitAxialZMax  expr="60 deg"
+//   limitZMin/Max   expr="0 in"      <- a LENGTH on the same mate
+//
+// Two traps here. There is no limitAngleMin/Max, and limitZMin/Max looks like a
+// match for rotationZ but is a translation limit — pairing by axis letter alone
+// would report a joint's travel in millimetres as its angle. And these carry an
+// `expression` string, not a numeric `value`, so reading .value finds nothing
+// and quietly reports "unlimited".
+const LIMIT_PARAM = {
+  rotationX: ["limitAxialXMin", "limitAxialXMax", "angle"],
+  rotationY: ["limitAxialYMin", "limitAxialYMax", "angle"],
+  rotationZ: ["limitAxialZMin", "limitAxialZMax", "angle"],
+  translationX: ["limitXMin", "limitXMax", "length"],
+  translationY: ["limitYMin", "limitYMax", "length"],
+  translationZ: ["limitZMin", "limitZMax", "length"],
+};
+
+const ANGLE_TO_RAD = { deg: Math.PI / 180, degree: Math.PI / 180, rad: 1, radian: 1 };
+const LENGTH_TO_M = { m: 1, meter: 1, metre: 1, cm: 0.01, mm: 0.001, in: 0.0254, ft: 0.3048 };
+
+// "60 deg" / "0.25 in" -> SI. Onshape evaluates these itself, so anything more
+// exotic than a number and a unit is left alone rather than half-parsed.
+function parseQuantity(text) {
+  if (typeof text !== "string") return null;
+  const m = text.trim().match(/^(-?\d+(?:\.\d+)?)\s*([a-zA-Z]*)$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const u = m[2].toLowerCase();
+  if (!u) return n;
+  if (u in ANGLE_TO_RAD) return n * ANGLE_TO_RAD[u];
+  if (u in LENGTH_TO_M) return n * LENGTH_TO_M[u];
+  return null;
+}
+
+function limitsFor(feature, field) {
+  if (!feature || !field) return null;
   const get = (id) => feature.parameters.find((p) => p.parameterId === id);
   const enabled = get("limitsEnabled");
-  if (enabled && enabled.value === false) return null;
+  if (!enabled || enabled.value !== true) return null;   // limits are opt-in per mate
 
-  const pairs = [
-    ["limitAngleMin", "limitAngleMax", "angle"],
-    ["limitZMin", "limitZMax", "length"],
-    ["limitAxialZMin", "limitAxialZMax", "length"],
-  ];
-  for (const [minId, maxId, kind] of pairs) {
-    const lo = get(minId), hi = get(maxId);
-    if (!lo && !hi) continue;
-    const num = (p) => (typeof p?.value === "number" ? p.value : null);
-    const loV = num(lo), hiV = num(hi);
-    if (loV === null && hiV === null) continue;
-    return kind === "angle"
-      ? { kind, minDeg: loV === null ? null : loV * RAD, maxDeg: hiV === null ? null : hiV * RAD,
-          text: `${(loV * RAD).toFixed(1)}° … ${(hiV * RAD).toFixed(1)}°` }
-      : { kind, minMm: loV === null ? null : loV * 1000, maxMm: hiV === null ? null : hiV * 1000,
-          text: `${(loV * 1000).toFixed(1)} … ${(hiV * 1000).toFixed(1)} mm` };
-  }
-  return null;
+  const spec = LIMIT_PARAM[field];
+  if (!spec) return null;
+  const [minId, maxId, kind] = spec;
+  // EXPRESSION FIRST. Measured on a real limited revolute:
+  //
+  //   limitAxialZMax   value=0   expression="60 deg"
+  //
+  // `value` is present, numeric, and wrong — a stale 0 — while the expression
+  // carries the truth. Preferring `value` because it is "already a number"
+  // yields 0…0, which reads as an unset pair and reports "unlimited". Feature
+  // parameters are unit-bearing strings that Onshape evaluates; the expression
+  // is the authority.
+  const si = (p) => {
+    const fromExpr = parseQuantity(p?.expression);
+    if (fromExpr !== null && fromExpr !== undefined) return fromExpr;
+    return typeof p?.value === "number" ? p.value : null;
+  };
+  const lo = si(get(minId)), hi = si(get(maxId));
+  if (lo === null || hi === null || lo === undefined || hi === undefined) return null;
+  if (lo === 0 && hi === 0) return null;                 // an unset pair, not a zero-width joint
+
+  return kind === "angle"
+    ? { kind, minDeg: lo * RAD, maxDeg: hi * RAD,
+        text: `${(lo * RAD).toFixed(1)}° … ${(hi * RAD).toFixed(1)}°` }
+    : { kind, minMm: lo * 1000, maxMm: hi * 1000,
+        text: `${(lo * 1000).toFixed(1)} … ${(hi * 1000).toFixed(1)} mm` };
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -352,14 +400,24 @@ const server = createServer(async (req, res) => {
       // Limits are a nice-to-have: if the features call fails (permissions, a
       // version rather than a workspace), still return the drivable list rather
       // than failing Initialize outright.
+      // Features come from the parent AND from every sub-assembly element. A
+      // nested mate's featureId is the same in both places (verified), so one
+      // flat featureId -> feature map serves everything. Without the
+      // sub-assembly pass, every nested mate reports "unlimited" no matter what
+      // limits it has — which is exactly what it used to do.
       let byId = new Map();
-      try {
-        const feats = await onshape(`${base}/features`);
-        for (const node of feats?.features ?? []) {
-          const f = normalizeFeature(node);
-          if (f.featureId) byId.set(f.featureId, f);
-        }
-      } catch { /* limits unavailable — degrade, do not fail */ }
+      const featureElements = [eid, ...new Set(
+        (subs ?? []).map((sub) => sub.eid).filter(Boolean),
+      )];
+      for (const fe of featureElements) {
+        try {
+          const feats = await onshape(`/assemblies/d/${did}/${wvm}/${wvmid}/e/${fe}/features`);
+          for (const node of feats?.features ?? []) {
+            const f = normalizeFeature(node);
+            if (f.featureId) byId.set(f.featureId, f);
+          }
+        } catch { /* limits unavailable for this element — degrade, do not fail */ }
+      }
 
       // One flat list, all of it from the PARENT's element. Top-level mates
       // keep their bare name; occurrence-owned ones are prefixed with the
@@ -382,7 +440,7 @@ const server = createServer(async (req, res) => {
           currentDeg: fields.length ? Number((mv[fields[0]] * RAD).toFixed(4)) : null,
           // Limits come from the parent's feature list, which only describes the
           // parent's own mates. A nested one simply has none to report.
-          limits: prefix ? null : (byId.get(mv.featureId) ? limitsFor(byId.get(mv.featureId)) : null),
+          limits: limitsFor(byId.get(mv.featureId), fields[0]),
         });
       }
       return json(res, 200, {
