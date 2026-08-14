@@ -327,7 +327,7 @@ const server = createServer(async (req, res) => {
     // documented example puts them in the path rather than the query string —
     // which the field appears to drop. The page parses them back out.
     //   /d/{did}/{w|v}/{wvmid}/e/{eid}
-    if (req.method === "GET" && (p === "/" || p === "/index.html" || /^\/d\/[^/]+\/[wvm]\/[^/]+\/e\/[^/]+\/?$/.test(p))) {
+    if (req.method === "GET" && (p === "/" || p === "/index.html" || /^\/d\/[^/]+\/[wvm]\/[^/]+\/e\/[^/]+(?:\/c\/.*)?\/?$/.test(p))) {
       return serveFile(res, "index.html");
     }
     if (req.method === "GET" && p === "/spike.html") return serveFile(res, "spike.html");
@@ -391,10 +391,16 @@ const server = createServer(async (req, res) => {
       const wvm = url.searchParams.get("wvm") || "w";
       const wvmid = url.searchParams.get("wvmid");
       const eid = url.searchParams.get("eid");
+      // A CONFIGURED assembly is a different assembly per configuration:
+      // instances suppress and unsuppress, so omitting this reads the DEFAULT
+      // variant and reports the other one's parts as missing.
+      const cfg = url.searchParams.get("cfg") || "";
       if (!did || !wvmid || !eid) return json(res, 400, { error: "did, wvmid and eid are required" });
 
       const base = `/assemblies/d/${did}/${wvm}/${wvmid}/e/${eid}`;
-      const values = await onshape(`${base}/matevalues`);
+      const CQ = cfg ? `configuration=${encodeURIComponent(cfg)}` : "";
+      const withCfg = (u) => (CQ ? u + (u.includes("?") ? "&" : "?") + CQ : u);
+      const values = await onshape(withCfg(`${base}/matevalues`));
       const list = values?.mateValues ?? [];
 
       // Sub-assembly mates come back in the PARENT's list, tagged with the
@@ -418,7 +424,7 @@ const server = createServer(async (req, res) => {
       const subs = [];
       let subError = null;
       try {
-        const def = await onshape(`${base}?includeMateFeatures=false&includeMateConnectors=false`);
+        const def = await onshape(withCfg(`${base}?includeMateFeatures=false&includeMateConnectors=false`));
         for (const inst of def?.rootAssembly?.instances ?? []) {
           if (!inst?.id) continue;
           nameById.set(inst.id, String(inst.name ?? inst.id));
@@ -441,7 +447,7 @@ const server = createServer(async (req, res) => {
         return p.map((id) => nameById.get(id) ?? id).join("/");
       };
 
-      mateCache = { key: `${did}/${wvm}/${wvmid}/${eid}`, list, nameById };
+      mateCache = { key: `${did}/${wvm}/${wvmid}/${eid}/${cfg}`, list, nameById };
 
       // Limits are a nice-to-have: if the features call fails (permissions, a
       // version rather than a workspace), still return the drivable list rather
@@ -457,7 +463,7 @@ const server = createServer(async (req, res) => {
       )];
       for (const fe of featureElements) {
         try {
-          const feats = await onshape(`/assemblies/d/${did}/${wvm}/${wvmid}/e/${fe}/features`);
+          const feats = await onshape(withCfg(`/assemblies/d/${did}/${wvm}/${wvmid}/e/${fe}/features`));
           for (const node of feats?.features ?? []) {
             const f = normalizeFeature(node);
             if (f.featureId) byId.set(f.featureId, f);
@@ -505,7 +511,7 @@ const server = createServer(async (req, res) => {
     // the browser never has to reassemble a payload it does not fully model.
     if (req.method === "POST" && p === "/api/drive") {
       const b = JSON.parse((await readBody(req)) || "{}");
-      const { did, wvm = "w", wvmid, eid, targets } = b;
+      const { did, wvm = "w", wvmid, eid, targets, cfg = "" } = b;
       if (!did || !wvmid || !eid || !Array.isArray(targets)) {
         return json(res, 400, { error: "did, wvmid, eid and targets[] are required" });
       }
@@ -513,7 +519,7 @@ const server = createServer(async (req, res) => {
       // the API's error for it is opaque, so refuse early and say why.
       if (wvm !== "w") return json(res, 400, { error: "writes need a workspace (/w/), not a version" });
 
-      const key = `${did}/${wvm}/${wvmid}/${eid}`;
+      const key = `${did}/${wvm}/${wvmid}/${eid}/${cfg}`;
       if (!mateCache || mateCache.key !== key) {
         return json(res, 409, { error: "not initialised for this element — press Initialize" });
       }
@@ -558,7 +564,9 @@ const server = createServer(async (req, res) => {
 
       // One POST for everything, nested or not — one microversion per flush
       // however many joints moved.
-      await onshape(`/assemblies/d/${did}/w/${wvmid}/e/${eid}/matevalues`, {
+      const writeUrl = `/assemblies/d/${did}/w/${wvmid}/e/${eid}/matevalues` +
+        (cfg ? `?configuration=${encodeURIComponent(cfg)}` : "");
+      await onshape(writeUrl, {
         method: "POST",
         body: JSON.stringify({ mateValues: mateCache.list }),
       });

@@ -239,17 +239,23 @@
       // appears to drop a query string (observed: only the default params
       // companyId/server/userId/clientId/locale/theme survived).
       //   /d/{did}/{w|v}/{wvmid}/e/{eid}
-      const fromPath = location.pathname.match(/^\/d\/([^/]+)\/([wvm])\/([^/]+)\/e\/([^/]+)\/?$/);
+      // Optional /c/<configuration> tail. A configured assembly is a different
+      // assembly per configuration — instances suppress and unsuppress — so
+      // without this the panel reads the DEFAULT variant and reports the other
+      // configuration's parts as missing.
+      const fromPath = location.pathname.match(/^\/d\/([^/]+)\/([wvm])\/([^/]+)\/e\/([^/]+)(?:\/c\/(.*?))?\/?$/);
 
       const wvmRaw = (Q.get("wvm") || Q.get("workspaceOrVersion") || "").toLowerCase();
       const wvmFromQuery = wvmRaw.startsWith("v") ? "v" : wvmRaw.startsWith("w") ? "w" : "";
       const CTX = fromPath
-        ? { did: fromPath[1], wvm: fromPath[2], wvmid: fromPath[3], eid: fromPath[4] }
+        ? { did: fromPath[1], wvm: fromPath[2], wvmid: fromPath[3], eid: fromPath[4],
+            cfg: fromPath[5] ? decodeURIComponent(fromPath[5]) : (Q.get("configuration") || "") }
         : {
             did: Q.get("documentId") || "",
             wvm: wvmFromQuery || (Q.get("workspaceId") ? "w" : Q.get("versionId") ? "v" : "w"),
             wvmid: Q.get("wvmid") || Q.get("workspaceOrVersionId") || Q.get("workspaceId") || Q.get("versionId") || "",
             eid: Q.get("elementId") || "",
+            cfg: Q.get("configuration") || "",
           };
       const READONLY = CTX.wvm !== "w";   // versions are immutable
 
@@ -514,7 +520,7 @@
           setBar("auth", "bad",
             "No document context. Set the extension's action URL to:<br>" +
             "<code style='font-size:10px'>" + location.origin +
-            "/d/{$documentId}/{$workspaceOrVersion}/{$workspaceOrVersionId}/e/{$elementId}</code><br>" +
+            "/d/{$documentId}/{$workspaceOrVersion}/{$workspaceOrVersionId}/e/{$elementId}/c/{$configuration}</code><br>" +
             "path seen: <code style='font-size:10px'>" + location.pathname + "</code><br>" +
             "query seen: " + (got.length ? got.join(", ") : "nothing"));
           return;
@@ -523,7 +529,8 @@
         const prev = $("initState").textContent;
         $("initState").textContent = "checking…"; $("initState").className = "pill";
         try {
-          const r = await fetch(`/api/mates?did=${CTX.did}&wvm=${CTX.wvm}&wvmid=${CTX.wvmid}&eid=${CTX.eid}`);
+          const r = await fetch(`/api/mates?did=${CTX.did}&wvm=${CTX.wvm}&wvmid=${CTX.wvmid}&eid=${CTX.eid}`
+            + (CTX.cfg ? `&cfg=${encodeURIComponent(CTX.cfg)}` : ""));
           const j = await r.json();
           if (!r.ok) throw new Error(j.error || "failed");
 
