@@ -107,6 +107,13 @@
 
       const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
 
+      //----------------------------------------------------------------------------------------------
+      // policyState
+      // Answers question 1 with no controller and no user gesture. Reports
+      // `supported` separately from `allowed` because a non-Chromium browser
+      // lacking the API is "unknown", which is not the same as "blocked" — and
+      // showing them as the same thing would condemn a working setup.
+      //----------------------------------------------------------------------------------------------
       function policyState() {
         const fp = document.featurePolicy || document.permissionsPolicy;
         if (!fp || typeof fp.allowsFeature !== "function") return { supported: false, allowed: null };
@@ -115,6 +122,11 @@
         return { supported: true, allowed: fp.allowsFeature("gamepad"), known };
       }
 
+      //----------------------------------------------------------------------------------------------
+      // row / render
+      // Rows are rebuilt from scratch every tick, so the table always reflects
+      // the current reading rather than accumulating stale entries.
+      //----------------------------------------------------------------------------------------------
       function row(k, v, cls) { rows.push([k, v, cls || ""]); }
 
       function render() {
@@ -123,12 +135,26 @@
           .join("");
       }
 
+      //----------------------------------------------------------------------------------------------
+      // setVerdict
+      // The one line someone reads before anything else, so it states the
+      // outcome rather than the evidence — the table underneath carries that.
+      //----------------------------------------------------------------------------------------------
       function setVerdict(cls, text, sub) {
         const v = el("verdict");
         v.className = cls;
         v.innerHTML = text + (sub ? `<small>${sub}</small>` : "");
       }
 
+      //----------------------------------------------------------------------------------------------
+      // tick
+      // Polls rather than waiting on events, because the Gamepad API exposes no
+      // event for axis movement — state has to be sampled every frame.
+      //
+      // The blur counters accumulate here and are never reset, which is the
+      // whole trick: the unfocused case cannot be observed while looking at it,
+      // so it is recorded and read back afterwards.
+      //----------------------------------------------------------------------------------------------
       function tick() {
         requestAnimationFrame(tick);
         const focused = document.hasFocus();
@@ -228,11 +254,15 @@
         }, null, 2));
       }
 
+      let lastDump = "";
+
+      //----------------------------------------------------------------------------------------------
+      // setDump
       // The dump was being rewritten every animation frame, which destroyed any
       // selection ~60 times a second — that is why selecting it by hand was
-      // hopeless. Rewrite it only when the text actually changes, and never
-      // while the user has a selection inside it.
-      let lastDump = "";
+      // hopeless. Rewrite only when the text actually changes, and never while
+      // the user has a selection inside it.
+      //----------------------------------------------------------------------------------------------
       function setDump(text) {
         if (text === lastDump) return;
         const sel = window.getSelection();
@@ -245,11 +275,14 @@
         el("dump").textContent = text;
       }
 
+      //----------------------------------------------------------------------------------------------
+      // copyText
       // Copying from inside a cross-origin iframe is awkward: the async Clipboard
       // API needs `clipboard-write` delegated via Permissions Policy, and Onshape
       // grants `gamepad` but not that. So try three routes, best first, and fall
       // back to selecting the text so Ctrl+C is a single keystroke rather than a
       // drag through a narrow panel.
+      //----------------------------------------------------------------------------------------------
       async function copyText(text) {
         try {
           if (navigator.clipboard && window.isSecureContext) {

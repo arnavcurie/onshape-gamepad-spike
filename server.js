@@ -56,6 +56,12 @@ let token = null;        // { access_token, refresh_token, expires_at }
 // never written.
 let mateCache = null;    // { key, list, nameById }
 
+//----------------------------------------------------------------------------------------------------
+// authed
+// The 30s margin is deliberate: a token that passes this check still has to
+// survive the round trip that follows. Treating "expires in 2s" as valid would
+// hand out a token that 401s on arrival.
+//----------------------------------------------------------------------------------------------------
 function authed() {
   return Boolean(token && token.access_token && Date.now() < token.expires_at - 30_000);
 }
@@ -89,6 +95,11 @@ async function refresh() {
   return true;
 }
 
+//----------------------------------------------------------------------------------------------------
+// ensureToken
+// The single gate every API call goes through, so a refresh happens at most in
+// one place rather than being re-implemented per handler.
+//----------------------------------------------------------------------------------------------------
 async function ensureToken() {
   if (authed()) return true;
   return refresh();
@@ -144,7 +155,8 @@ function normalizeFeature(node) {
 }
 
 //----------------------------------------------------------------------------------------------------
-// limitsFor
+// Mate limits — tables, unit parsing, and the lookup itself.
+//
 // A mate only reports limits if the modeller enabled them, so "no limits" is
 // the common case and must degrade gracefully rather than look like an error.
 // Angle limits come back as expressions ("30 deg"); values are radians.
@@ -176,8 +188,12 @@ const LIMIT_PARAM = {
 const ANGLE_TO_RAD = { deg: Math.PI / 180, degree: Math.PI / 180, rad: 1, radian: 1 };
 const LENGTH_TO_M = { m: 1, meter: 1, metre: 1, cm: 0.01, mm: 0.001, in: 0.0254, ft: 0.3048 };
 
+//----------------------------------------------------------------------------------------------------
+// parseQuantity
 // "60 deg" / "0.25 in" -> SI. Onshape evaluates these itself, so anything more
-// exotic than a number and a unit is left alone rather than half-parsed.
+// exotic than a number and a unit is left alone rather than half-parsed —
+// returning null lets the caller fall back instead of inventing a wrong number.
+//----------------------------------------------------------------------------------------------------
 function parseQuantity(text) {
   if (typeof text !== "string") return null;
   const m = text.trim().match(/^(-?\d+(?:\.\d+)?)\s*([a-zA-Z]*)$/);
@@ -190,6 +206,12 @@ function parseQuantity(text) {
   return null;
 }
 
+//----------------------------------------------------------------------------------------------------
+// limitsFor
+// Returns the travel of one mate's driven field, or null when it declares
+// none. Null is the ordinary case, not a failure — the panel clamps to
+// +/-CLAMP_UNLIMITED when it gets one.
+//----------------------------------------------------------------------------------------------------
 function limitsFor(feature, field) {
   if (!feature || !field) return null;
   const get = (id) => feature.parameters.find((p) => p.parameterId === id);
@@ -240,12 +262,22 @@ function drivableFields(mv) {
 // ---- routing ---------------------------------------------------------------
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css" };
 
+//----------------------------------------------------------------------------------------------------
+// json
+// no-store on every reply: the panel polls /auth/status, and a cached "not
+// authorised" would survive an actual login.
+//----------------------------------------------------------------------------------------------------
 function json(res, code, obj) {
   const s = JSON.stringify(obj);
   res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
   res.end(s);
 }
 
+//----------------------------------------------------------------------------------------------------
+// serveFile
+// Only ever called with literal names from the routes below, never with
+// anything off the URL, so there is no path to traverse out of HERE.
+//----------------------------------------------------------------------------------------------------
 async function serveFile(res, name) {
   try {
     const buf = await readFile(join(HERE, name));
@@ -261,6 +293,11 @@ async function serveFile(res, name) {
   }
 }
 
+//----------------------------------------------------------------------------------------------------
+// readBody
+// Capped at 5 MB. The only POST here is a short targets[] array, so anything
+// approaching that is a bug or an attack, not a legitimate payload.
+//----------------------------------------------------------------------------------------------------
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let b = "";
@@ -270,6 +307,15 @@ function readBody(req) {
   });
 }
 
+//----------------------------------------------------------------------------------------------------
+// The server. Routes are matched inline rather than through a table because
+// there are only seven of them and each carries its own reasoning.
+//
+// Every handler runs inside one try/catch, so a thrown error carrying a
+// `.status` becomes that HTTP code and anything else becomes a 500. That is
+// what lets onshape() simply throw and have the panel see a real status —
+// notably the 401 it uses to prompt for re-login.
+//----------------------------------------------------------------------------------------------------
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, PUBLIC_URL);
   const p = url.pathname;
@@ -526,6 +572,11 @@ const server = createServer(async (req, res) => {
   }
 });
 
+//----------------------------------------------------------------------------------------------------
+// Startup. The redirect URI is printed because it must match what is
+// registered on the Onshape OAuth application EXACTLY — a mismatch fails at
+// the callback, well after login appears to have worked.
+//----------------------------------------------------------------------------------------------------
 server.listen(PORT, () => {
   console.log(`panel + proxy on ${PUBLIC_URL} (port ${PORT})`);
   console.log(`redirect URI: ${REDIRECT_URI}`);

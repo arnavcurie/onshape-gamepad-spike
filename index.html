@@ -309,6 +309,13 @@
       // localStorage for sessionStorage below to get the reset-on-shutdown
       // behaviour instead; nothing else changes.
       const THEME_KEY = "onshape-xbox-theme";
+
+      //----------------------------------------------------------------------------------------------
+      // applyTheme
+      // Drives everything off one data-theme attribute on <html>, so the CSS
+      // owns the palette and this only has to keep the button's label and
+      // aria-pressed honest.
+      //----------------------------------------------------------------------------------------------
       function applyTheme(mode) {
         const dark = mode === "dark";
         document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
@@ -336,6 +343,12 @@
       let nextId = 1;
       const srcOf = (r) => SOURCES.find((s) => s.id === r.source) ?? SOURCES[0];
 
+      //----------------------------------------------------------------------------------------------
+      // load
+      // Restores saved bindings, tolerating both the current array shape and
+      // the older one-entry-per-input object. Anything unreadable falls through
+      // to the seeded default rather than throwing the panel away on startup.
+      //----------------------------------------------------------------------------------------------
       function load() {
         let raw = null;
         try { raw = JSON.parse(localStorage.getItem(STORE) || "null"); } catch { /* corrupt */ }
@@ -360,6 +373,12 @@
       const optionsHtml = (sel) => SOURCES.map((s) =>
         `<option value="${s.id}"${s.id === sel ? " selected" : ""}>${s.label}</option>`).join("");
 
+      //----------------------------------------------------------------------------------------------
+      // render
+      // Rebuilds the whole table. Listeners are attached per row here rather
+      // than delegated, because a row's handlers close over its own binding
+      // object — which is what keeps duplicate rows on one input independent.
+      //----------------------------------------------------------------------------------------------
       function render() {
         tbody.innerHTML = "";
         for (const r of ROWS) {
@@ -399,8 +418,11 @@
         paint();
       }
 
+      //----------------------------------------------------------------------------------------------
+      // invalidate
       // Editing makes a row UNKNOWN, not still-wrong: leaving it red while
       // someone types a correction is just noise.
+      //----------------------------------------------------------------------------------------------
       function invalidate(r) {
         const st = R.get(r.id);
         if (st) { st.ok = false; st.info = null; }
@@ -431,6 +453,12 @@
       // driving is refused until it runs again. Scale is exempt — it changes
       // nothing the server verified.
       let dirty = true, initialized = false;
+
+      //----------------------------------------------------------------------------------------------
+      // setDirty
+      // Single owner of the Initialize button's appearance and the state pill,
+      // so "initialized", "changed" and "not initialized" can never disagree.
+      //----------------------------------------------------------------------------------------------
       function setDirty(v) {
         dirty = v;
         const b = $("init"), p = $("initState");
@@ -444,6 +472,13 @@
 
       // ---- auth ------------------------------------------------------------
       let isAuthed = false;
+
+      //----------------------------------------------------------------------------------------------
+      // refreshAuth
+      // Polled on a timer as well as after login, because the token can expire
+      // or the free-tier server can restart underneath a panel that is just
+      // sitting open — neither of which produces an event to react to.
+      //----------------------------------------------------------------------------------------------
       async function refreshAuth() {
         try {
           const r = await fetch("/auth/status");
@@ -464,6 +499,11 @@
           };
         } catch { setBar("auth","bad","Cannot reach the panel server."); }
       }
+      //----------------------------------------------------------------------------------------------
+      // setBar
+      // The two status bars are the only place this panel reports anything, so
+      // every branch that can fail ends in a call to this.
+      //----------------------------------------------------------------------------------------------
       function setBar(id, cls, html) { const e = $(id); e.className = "bar " + cls; e.innerHTML = html; }
       $("logout").onclick = async () => { await fetch("/auth/logout"); initialized = false; setDirty(true); refreshAuth(); };
 
@@ -593,6 +633,15 @@
 
       // ---- driving ---------------------------------------------------------
       let flushing = false, lastFlush = 0;
+
+      //----------------------------------------------------------------------------------------------
+      // flush
+      // Sends only what moved past EPSILON_DEG, and never overlaps itself — the
+      // `flushing` guard means a slow write cannot queue a second one behind it.
+      // Epsilon is measured against `posted` (what Onshape has actually been
+      // told) rather than the last sample, so slow drift still accumulates into
+      // a write instead of being filtered away tick by tick.
+      //----------------------------------------------------------------------------------------------
       async function flush() {
         if (flushing || READONLY) return;
         const targets = [];
@@ -636,15 +685,31 @@
       }
 
       // ---- pad -------------------------------------------------------------
+      //----------------------------------------------------------------------------------------------
+      // pickPad
       // Not every "gamepad" is one: a Jabra speakerphone enumerates as a pad
-      // with 0 axes and can sort ahead of the real controller.
+      // with 0 axes and can sort ahead of the real controller. Requiring 4 axes
+      // rejects it; preferring "standard" without requiring it keeps a real pad
+      // on a flaky driver (which reports "") usable.
+      //----------------------------------------------------------------------------------------------
       function pickPad() {
         const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
         const usable = pads.filter((p) => p && p.connected && p.axes.length >= 4);
         return usable.find((p) => p.mapping === "standard") || usable[0] || null;
       }
+      //----------------------------------------------------------------------------------------------
+      // dz / clamp
+      // dz rescales past the threshold, so motion ramps from zero at the
+      // deadzone edge instead of jumping to DZ-worth of speed.
+      //----------------------------------------------------------------------------------------------
       const dz = (v,k) => { const t = DZ[k]; return Math.abs(v) < t ? 0 : (v - Math.sign(v)*t)/(1-t); };
       const clamp = (v,lo,hi) => Math.min(hi, Math.max(lo, v));
+
+      //----------------------------------------------------------------------------------------------
+      // raw
+      // The one place Gamepad API indices are spelled out. Standard mapping, so
+      // these hold on Windows and macOS alike.
+      //----------------------------------------------------------------------------------------------
       function raw(pad, s) {
         if (s.kind === "button") return pad.buttons[s.btn]?.pressed ? 1 : 0;
         switch (s.id) {
@@ -657,14 +722,22 @@
         }
         return 0;
       }
-      // Range drives the speed, so scale=1 feels sane on every joint whether it
-      // travels 20° or 300°, and two joints on one stick arrive together.
+      //----------------------------------------------------------------------------------------------
+      // boundsOf
+      // A mate's declared limits when it has them, otherwise the fallback
+      // clamp. Never returns null, so callers do not each need the fallback.
+      //----------------------------------------------------------------------------------------------
       function boundsOf(id) {
         const lim = R.get(id)?.info?.limits;
         if (lim && lim.kind === "angle" && lim.minDeg != null && lim.maxDeg != null)
           return [Math.min(lim.minDeg, lim.maxDeg), Math.max(lim.minDeg, lim.maxDeg)];
         return [-CLAMP_UNLIMITED, CLAMP_UNLIMITED];
       }
+      //----------------------------------------------------------------------------------------------
+      // rateOf
+      // Range drives the speed, so scale=1 feels sane on every joint whether it
+      // travels 20° or 300°, and two joints on one stick arrive together.
+      //----------------------------------------------------------------------------------------------
       function rateOf(id) {
         const lim = R.get(id)?.info?.limits;
         if (lim && lim.kind === "angle" && lim.minDeg != null && lim.maxDeg != null)
@@ -675,6 +748,20 @@
       let last = 0, homing = false, homePrev = false, initPrev = false, everPad = false, padName = "";
       $("home").onclick = () => { if (initialized && !dirty) homing = true; };
 
+      //----------------------------------------------------------------------------------------------
+      // tick
+      // The whole control loop, once per animation frame: read the pad, service
+      // the LB+Start / LB+Back shortcuts, integrate or map each binding, repaint
+      // the diagram, then flush at most every MIN_POST_MS.
+      //
+      // dt is MEASURED, not assumed to be one frame, and clamped to MAX_DT — a
+      // backgrounded tab or a GC pause would otherwise integrate one enormous
+      // step and throw the arm across its range.
+      //
+      // Note this runs even when nothing is live: the diagram and the status
+      // bar must keep updating so an unbound or un-initialized panel still
+      // visibly responds to the controller.
+      //----------------------------------------------------------------------------------------------
       function tick(now) {
         requestAnimationFrame(tick);
         const pad = pickPad();
