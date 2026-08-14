@@ -453,10 +453,6 @@
               fail("not drivable", "This mate exposes no drivable field. Joints inside a closed kinematic loop are solver outputs; writes are accepted and ignored.");
               bad++; continue;
             }
-            if (m.viaOccurrence) {
-              fail("occurrence", "This mate is reached through a sub-assembly occurrence in the parent's list and cannot be driven from here. Address it as <sub-assembly>/<mate> instead.");
-              bad++; continue;
-            }
 
             // Before re-seeding, check what happened since the LAST run. This is
             // why Initialize and Verify are one button: verifying is just

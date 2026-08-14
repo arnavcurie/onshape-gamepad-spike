@@ -51,9 +51,10 @@ let token = null;        // { access_token, refresh_token, expires_at }
 // Initialize; mutated in place by /api/drive. Same discipline as the CLI's
 // live-mate-driver — one GET up front, then mutate and POST.
 //
-// Keyed by ELEMENT, because a sub-assembly's mates live in the sub-assembly's
-// own element and must be posted back there, not to the parent.
-let mateCache = null;    // { key, byEid: Map<eid, { list, label }> }
+// One array, the PARENT's — nested mates included, tagged with the occurrence
+// they belong to. See /api/mates for why the sub-assembly's own element is
+// never written.
+let mateCache = null;    // { key, list, nameById }
 
 function authed() {
   return Boolean(token && token.access_token && Date.now() < token.expires_at - 30_000);
@@ -300,75 +301,53 @@ const server = createServer(async (req, res) => {
 
       const base = `/assemblies/d/${did}/${wvm}/${wvmid}/e/${eid}`;
       const values = await onshape(`${base}/matevalues`);
-      const byEid = new Map();
-      byEid.set(eid, { list: values?.mateValues ?? [], label: null });
+      const list = values?.mateValues ?? [];
 
-      // Sub-assemblies. Their mates are NOT returned by the parent's matevalues
-      // call, so each has to be asked for its own — and written back to its own
-      // element too. Only sub-assemblies living in this same document and
-      // workspace can be driven: another document would need its own workspace,
-      // which we do not have.
+      // Sub-assembly mates come back in the PARENT's list, tagged with the
+      // occurrence they belong to. MEASURED, and it overturned the obvious
+      // approach: a mate has TWO independent values — the one in the
+      // sub-assembly's own element (the definition) and the one here (this
+      // occurrence inside this assembly). The parent's geometry follows the
+      // OCCURRENCE value. Writing the definition succeeds, reads back happily,
+      // and moves nothing in the parent.
+      //
+      //   parent   Revolute_Grip owner=[MP1rJ5...]  34.6101 -> 41.6101  writable
+      //   sub-asm  Revolute_Grip (own element)      60.3855  unchanged
+      //
+      // So everything is driven through the parent's element, and the
+      // sub-assembly's own element is never written.
+      //
+      // Occurrence entries also only appear while the joint is actually
+      // actuatable — when the grip's loop was closed they vanished from this
+      // list entirely. So presence here is itself a signal that it can be driven.
+      const nameById = new Map();
       const subs = [];
       let subError = null;
       try {
         const def = await onshape(`${base}?includeMateFeatures=false&includeMateConnectors=false`);
-
-        // Group by ELEMENT, not by name. Two occurrences of the same
-        // sub-assembly share one element, so they share one set of mate values:
-        // writing to it moves BOTH. Two *different* sub-assemblies can also
-        // happen to share a name, and those must stay separately addressable.
-        const byElement = new Map();
         for (const inst of def?.rootAssembly?.instances ?? []) {
-          if (inst?.type !== "Assembly" || !inst?.elementId) continue;
-          const e = byElement.get(inst.elementId) ?? {
-            eid: inst.elementId,
-            sameDoc: !inst.documentId || inst.documentId === did,
-            raws: [],
-          };
-          e.raws.push(String(inst.name ?? ""));
-          byElement.set(inst.elementId, e);
-        }
-
-        // One entry per INSTANCE, named exactly as the CAD tree shows it —
-        // "Armatron_Grip <1>". The occurrence number is the instance's identity,
-        // not decoration, so it stays in the address.
-        //
-        // Several instances can map to one element, and mate values belong to
-        // the element (the definition), not the occurrence. So <1> and <2> are
-        // separately addressable but share values: driving either moves both.
-        // That is Onshape's model, not a limitation of this app, and Initialize
-        // says so rather than letting it be discovered.
-        for (const e of byElement.values()) {
-          for (const raw of e.raws) {
-            subs.push({
-              name: raw,
-              eid: e.eid,
-              sameDoc: e.sameDoc,
-              occurrences: e.raws.length,
-              siblings: e.raws,
-            });
+          if (!inst?.id) continue;
+          nameById.set(inst.id, String(inst.name ?? inst.id));
+          if (inst.type === "Assembly") {
+            subs.push({ id: inst.id, name: String(inst.name ?? inst.id) });
           }
         }
       } catch (e) {
-        // Do not swallow this: with no listing, every sub-assembly binding fails
-        // as "no such mate" and the reason is invisible.
+        // Without the instance list the occurrence ids cannot be turned into
+        // readable names. Say so rather than silently addressing by raw id.
         subError = String(e.message || e);
       }
 
-      // Fetch once per ELEMENT even when several instances point at it.
-      const fetched = new Set();
-      for (const s of subs) {
-        if (!s.sameDoc || fetched.has(s.eid)) continue;
-        fetched.add(s.eid);
-        try {
-          const sv = await onshape(`/assemblies/d/${did}/${wvm}/${wvmid}/e/${s.eid}/matevalues`);
-          byEid.set(s.eid, { list: sv?.mateValues ?? [], label: s.name });
-        } catch { /* unreadable sub-assembly — skip rather than fail Initialize */ }
-      }
-      // Instance name -> element, so a write finds the right element even when
-      // two instance names share one.
-      const prefixToEid = new Map(subs.filter((s) => byEid.has(s.eid)).map((s) => [s.name, s.eid]));
-      mateCache = { key: `${did}/${wvm}/${wvmid}/${eid}`, byEid, prefixToEid, rootEid: eid };
+      // An occurrence path is a chain of instance ids; render it with the names
+      // the CAD tree shows, keeping the occurrence suffix because that is the
+      // instance's identity.
+      const prefixOf = (mv) => {
+        const p = Array.isArray(mv.ownerOccurrencePath) ? mv.ownerOccurrencePath : [];
+        if (!p.length) return null;
+        return p.map((id) => nameById.get(id) ?? id).join("/");
+      };
+
+      mateCache = { key: `${did}/${wvm}/${wvmid}/${eid}`, list, nameById };
 
       // Limits are a nice-to-have: if the features call fails (permissions, a
       // version rather than a workspace), still return the drivable list rather
@@ -382,43 +361,36 @@ const server = createServer(async (req, res) => {
         }
       } catch { /* limits unavailable — degrade, do not fail */ }
 
-      // One flat list. Top-level mates keep their bare name; a sub-assembly's
-      // are addressed "<sub-assembly>/<mate>" so the two can never collide.
+      // One flat list, all of it from the PARENT's element. Top-level mates
+      // keep their bare name; occurrence-owned ones are prefixed with the
+      // instance path, e.g. "Armatron_Grip <1>/Revolute_Grip".
       const mates = [];
-      // Top level first, bare. Then one set per sub-assembly INSTANCE, prefixed
-      // with the instance name exactly as the CAD tree shows it.
-      const emitFrom = [{ prefix: null, eid }].concat(
-        subs.filter((s) => byEid.has(s.eid)).map((s) => ({ prefix: s.name, eid: s.eid })),
-      );
-      for (const { prefix, eid: thisEid } of emitFrom) {
-        const entry = byEid.get(thisEid);
-        if (!entry) continue;
-        for (const mv of entry.list) {
-          const fields = drivableFields(mv);
-          const feat = prefix ? null : byId.get(mv.featureId);
-          const bare = String(mv.mateName ?? "");
-          mates.push({
-            mateName: prefix ? `${prefix}/${bare}` : bare,
-            bareName: bare,
-            parent: prefix,
-            eid: thisEid,
-            featureId: mv.featureId,
-            jsonType: mv.jsonType,
-            fields,
-            currentDeg: fields.length ? Number((mv[fields[0]] * RAD).toFixed(4)) : null,
-            limits: feat ? limitsFor(feat) : null,
-            // Occurrence-owned mates reached through the PARENT's list are a
-            // different thing again, and are not drivable from here.
-            viaOccurrence: Array.isArray(mv.ownerOccurrencePath) && mv.ownerOccurrencePath.length > 0,
-          });
-        }
+      const perSub = new Map();
+      for (const mv of list) {
+        const fields = drivableFields(mv);
+        const prefix = prefixOf(mv);
+        const bare = String(mv.mateName ?? "");
+        if (prefix) perSub.set(prefix, (perSub.get(prefix) ?? 0) + 1);
+        mates.push({
+          mateName: prefix ? `${prefix}/${bare}` : bare,
+          bareName: bare,
+          parent: prefix,
+          occurrencePath: Array.isArray(mv.ownerOccurrencePath) ? mv.ownerOccurrencePath : [],
+          featureId: mv.featureId,
+          jsonType: mv.jsonType,
+          fields,
+          currentDeg: fields.length ? Number((mv[fields[0]] * RAD).toFixed(4)) : null,
+          // Limits come from the parent's feature list, which only describes the
+          // parent's own mates. A nested one simply has none to report.
+          limits: prefix ? null : (byId.get(mv.featureId) ? limitsFor(byId.get(mv.featureId)) : null),
+        });
       }
       return json(res, 200, {
         mates,
         subAssemblies: subs.map((s) => ({
-          name: s.name, rawName: s.rawName, drivable: s.sameDoc,
-          mateCount: (byEid.get(s.eid)?.list ?? []).length,
-          occurrences: s.occurrences,
+          name: s.name,
+          drivable: perSub.has(s.name),
+          mateCount: perSub.get(s.name) ?? 0,
         })),
         subError,
       });
@@ -442,49 +414,51 @@ const server = createServer(async (req, res) => {
         return json(res, 409, { error: "not initialised for this element — press Initialize" });
       }
 
-      // Group by element: a sub-assembly's mates must be posted back to the
-      // sub-assembly's own element, not to the parent's.
-      const touched = new Set();
+      // Everything is driven through the PARENT's element, including nested
+      // mates — measured: the occurrence entry here is what the assembly's
+      // geometry follows, while the sub-assembly's own element holds a separate
+      // definition value that moves nothing in the parent.
+      //
+      // The name carries the occurrence path, so match on both the bare mate
+      // name AND the path. Two occurrences of one sub-assembly have distinct
+      // paths and are therefore independently drivable from here — unlike the
+      // definition, which they share.
+      const norm = (x) => String(x ?? "").replace(/\s*<\d+>\s*(?=\/|$)/g, "").trim();
       const applied = [];
       for (const t of targets) {
-        const slash = t.mateName.indexOf("/");
-        const parent = slash >= 0 ? t.mateName.slice(0, slash) : null;
+        const slash = t.mateName.lastIndexOf("/");
+        const prefix = slash >= 0 ? t.mateName.slice(0, slash) : null;
         const bare = slash >= 0 ? t.mateName.slice(slash + 1) : t.mateName;
-        // Resolve the instance name to its element. Exact first; a
-        // suffix-insensitive match is allowed only when exactly one instance
-        // matches, so "Armatron_Grip" can never silently pick <1> over <2>.
-        const norm = (x) => String(x ?? "").replace(/\s*<\d+>\s*$/, "").trim();
-        let targetEid = null;
-        if (parent === null) targetEid = mateCache.rootEid;
-        else if (mateCache.prefixToEid.has(parent)) targetEid = mateCache.prefixToEid.get(parent);
-        else {
-          const hits = [...mateCache.prefixToEid].filter(([n]) => norm(n) === norm(parent));
-          if (hits.length === 1) targetEid = hits[0][1];
+
+        const pathOf = (mv) => {
+          const pp = Array.isArray(mv.ownerOccurrencePath) ? mv.ownerOccurrencePath : [];
+          return pp.length ? pp.map((id) => mateCache.nameById.get(id) ?? id).join("/") : null;
+        };
+        let mv = mateCache.list.find(
+          (m) => String(m.mateName ?? "") === bare && pathOf(m) === prefix,
+        );
+        // Occurrence suffix optional, but only when it is unambiguous.
+        if (!mv) {
+          const hits = mateCache.list.filter(
+            (m) => String(m.mateName ?? "") === bare && norm(pathOf(m)) === norm(prefix),
+          );
+          if (hits.length === 1) mv = hits[0];
         }
-        const candidates = targetEid && mateCache.byEid.has(targetEid)
-          ? [[targetEid, mateCache.byEid.get(targetEid)]] : [];
-        for (const [thisEid, entry] of candidates) {
-          const mv = entry.list.find((m) => String(m.mateName ?? "") === bare);
-          if (!mv) continue;
-          const field = drivableFields(mv)[0];
-          if (!field) continue;
-          mv[field] = t.valueSi;
-          touched.add(thisEid);
-          applied.push({ mateName: t.mateName, field, valueSi: t.valueSi });
-          break;
-        }
+        if (!mv) continue;
+        const field = drivableFields(mv)[0];
+        if (!field) continue;
+        mv[field] = t.valueSi;
+        applied.push({ mateName: t.mateName, field, valueSi: t.valueSi });
       }
       if (applied.length === 0) return json(res, 200, { ok: true, applied: [] });
 
-      // One POST per element that actually changed — still one microversion per
-      // element per flush, however many of its joints moved.
-      for (const thisEid of touched) {
-        await onshape(`/assemblies/d/${did}/w/${wvmid}/e/${thisEid}/matevalues`, {
-          method: "POST",
-          body: JSON.stringify({ mateValues: mateCache.byEid.get(thisEid).list }),
-        });
-      }
-      return json(res, 200, { ok: true, applied, elements: touched.size });
+      // One POST for everything, nested or not — one microversion per flush
+      // however many joints moved.
+      await onshape(`/assemblies/d/${did}/w/${wvmid}/e/${eid}/matevalues`, {
+        method: "POST",
+        body: JSON.stringify({ mateValues: mateCache.list }),
+      });
+      return json(res, 200, { ok: true, applied });
     }
 
     res.writeHead(404).end("not found");
