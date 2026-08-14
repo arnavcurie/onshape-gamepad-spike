@@ -188,6 +188,7 @@
         <thead><tr>
           <th>Input</th><th>Mate name</th>
           <th title="Multiplies the speed. -1 flips direction.">Scale</th>
+          <th title="Where LB+Back sends this joint. Clamped into the mate's limits.">Home</th>
           <th>Range</th><th>Commanded</th>
           <th title="What the assembly actually reads back, as of the last Initialize">Actual</th>
           <th></th>
@@ -368,20 +369,20 @@
         try { raw = JSON.parse(localStorage.getItem(STORE) || "null"); } catch { /* corrupt */ }
         if (Array.isArray(raw)) {
           ROWS = raw.filter((r) => r && SOURCES.some((s) => s.id === r.source))
-                    .map((r) => ({ id: nextId++, source: r.source, joint: String(r.joint ?? ""), scale: Number(r.scale) || 1 }));
+                    .map((r) => ({ id: nextId++, source: r.source, joint: String(r.joint ?? ""), scale: Number(r.scale) || 1, home: Number(r.home) || 0 }));
         } else if (raw && typeof raw === "object") {
           // Migrate the old shape — one entry keyed by input — rather than
           // silently dropping saved bindings.
           ROWS = SOURCES.filter((s) => raw[s.id])
-            .map((s) => ({ id: nextId++, source: s.id, joint: String(raw[s.id].joint ?? ""), scale: Number(raw[s.id].scale) || 1 }));
+            .map((s) => ({ id: nextId++, source: s.id, joint: String(raw[s.id].joint ?? ""), scale: Number(raw[s.id].scale) || 1, home: 0 }));
         }
         // Seed with one row per input so the table opens looking familiar; extra
         // rows are added only where wanted.
-        if (!ROWS.length) ROWS = SOURCES.map((s) => ({ id: nextId++, source: s.id, joint: "", scale: 1 }));
+        if (!ROWS.length) ROWS = SOURCES.map((s) => ({ id: nextId++, source: s.id, joint: "", scale: 1, home: 0 }));
         for (const r of ROWS) if (!R.has(r.id)) R.set(r.id, { commanded: 0, info: null, ok: false, posted: 0, seed: 0 });
       }
       const persist = () => localStorage.setItem(STORE, JSON.stringify(
-        ROWS.map(({ source, joint, scale }) => ({ source, joint, scale }))));
+        ROWS.map(({ source, joint, scale, home }) => ({ source, joint, scale, home }))));
 
       const tbody = document.querySelector("#tbl tbody");
       const optionsHtml = (sel) => SOURCES.map((s) =>
@@ -402,10 +403,13 @@
             `<td class="src"><select data-f="source">${optionsHtml(r.source)}</select></td>` +
             `<td><input data-f="joint" placeholder="mate  or  Sub &lt;1&gt;/mate" title="Top-level mates take their bare name. A mate inside a sub-assembly is addressed by the instance name as the CAD tree shows it, e.g. Armatron_Grip &lt;1&gt;/Revolute_Grip." value="${String(r.joint).replace(/"/g,"&quot;")}"></td>` +
             `<td><input data-f="scale" class="num" type="number" step="0.1" title="Multiplies the speed. -1 drives this mate opposite to another on the same input." value="${r.scale}"></td>` +
+            `<td><input data-f="home" class="num" type="number" step="5" title="Where LB+Back sends this joint, clamped into its limits. The mate's zero is often an END of travel, not a sensible rest pose." value="${r.home ?? 0}"></td>` +
             `<td class="ro" id="ro-${r.id}">&mdash;</td>` +
             `<td class="live" id="live-${r.id}">&mdash;</td>` +
             `<td class="ro" id="act-${r.id}">&mdash;</td>` +
-            `<td><button data-f="del" title="Remove this binding" style="padding:.1rem .4rem;line-height:1">&times;</button></td>`;
+            `<td style="white-space:nowrap">` +
+              `<button data-f="sweep" title="Run this joint through its limits and back, without the controller. Click again to stop." style="padding:.1rem .4rem;line-height:1">&#9655;</button> ` +
+              `<button data-f="del" title="Remove this binding" style="padding:.1rem .4rem;line-height:1">&times;</button></td>`;
           tbody.appendChild(tr);
 
           tr.querySelector('[data-f="source"]').addEventListener("change", (e) => {
@@ -421,10 +425,15 @@
             r.scale = Number(e.target.value) || 0;   // scale needs no re-init
             persist();
           });
+          tr.querySelector('[data-f="home"]').addEventListener("input", (e) => {
+            r.home = Number(e.target.value) || 0;    // nor does home
+            persist();
+          });
+          tr.querySelector('[data-f="sweep"]').addEventListener("click", () => toggleSweep(r));
           tr.querySelector('[data-f="del"]').addEventListener("click", () => {
             ROWS = ROWS.filter((x) => x.id !== r.id);
             R.delete(r.id);
-            if (!ROWS.length) ROWS = SOURCES.map((s) => ({ id: nextId++, source: s.id, joint: "", scale: 1 }));
+            if (!ROWS.length) ROWS = SOURCES.map((s) => ({ id: nextId++, source: s.id, joint: "", scale: 1, home: 0 }));
             for (const x of ROWS) if (!R.has(x.id)) R.set(x.id, { commanded: 0, info: null, ok: false, posted: 0, seed: 0 });
             setDirty(true); persist(); render(); paint();
           });
@@ -452,7 +461,7 @@
       const paint = () => { for (const r of ROWS) $("row-"+r.id)?.classList.toggle("unbound", !String(r.joint).trim()); };
 
       $("add").addEventListener("click", () => {
-        const r = { id: nextId++, source: SOURCES[0].id, joint: "", scale: 1 };
+        const r = { id: nextId++, source: SOURCES[0].id, joint: "", scale: 1, home: 0 };
         ROWS.push(r);
         R.set(r.id, { commanded: 0, info: null, ok: false, posted: 0, seed: 0 });
         setDirty(true); persist(); render();
@@ -761,8 +770,45 @@
         return FALLBACK_RATE;
       }
 
+      // ---- sweep -----------------------------------------------------------
+      // Run one joint through its limits and back, with no controller. This is
+      // the setup tool: it proves a binding actually moves the model, and shows
+      // the real travel, before anyone tries to fly it. It writes through the
+      // same throttled flush as the controller, so it cannot outrun the API.
+      const SWEEP_SECONDS = 4;
+      let sweeping = null;   // { id, t0 }
+      function toggleSweep(row) {
+        if (sweeping?.id === row.id) { sweeping = null; paintSweep(); return; }
+        if (!initialized || dirty) { setBar("auth","warn","Initialize before sweeping."); return; }
+        if (!R.get(row.id)?.ok) { setBar("auth","warn","That binding did not resolve — nothing to sweep."); return; }
+        if (READONLY) { setBar("auth","bad","Open a workspace, not a version."); return; }
+        sweeping = { id: row.id, t0: performance.now() };
+        paintSweep();
+      }
+      function paintSweep() {
+        for (const row of ROWS) {
+          const b = $("row-"+row.id)?.querySelector('[data-f="sweep"]');
+          if (b) b.innerHTML = sweeping?.id === row.id ? "&#9632;" : "&#9655;";
+        }
+      }
+      function stepSweep(now) {
+        if (!sweeping) return;
+        const row = ROWS.find((r) => r.id === sweeping.id);
+        const st = row && R.get(row.id);
+        if (!row || !st?.ok) { sweeping = null; paintSweep(); return; }
+        const [lo, hi] = boundsOf(row.id);
+        // Triangle wave lo -> hi -> lo, so it ends where it started rather than
+        // leaving the joint parked at a limit.
+        const phase = ((now - sweeping.t0) / 1000 / SWEEP_SECONDS) % 1;
+        const tri = phase < 0.5 ? phase * 2 : 2 - phase * 2;
+        st.commanded = lo + tri * (hi - lo);
+        // A swept position row must re-acquire afterwards, or the trigger would
+        // snap it back the moment the sweep stops.
+        st.armed = false;
+      }
+
       let last = 0, homing = false, homePrev = false, initPrev = false, everPad = false, padName = "";
-      $("home").onclick = () => { if (initialized && !dirty) homing = true; };
+      $("home").onclick = () => { if (initialized && !dirty) { sweeping = null; paintSweep(); homing = true; } };
 
       //----------------------------------------------------------------------------------------------
       // tick
@@ -834,10 +880,12 @@
               }
               if (st.armed) st.commanded = wanted;
             } else if (homing) {
-              // Home to the mate's zero CLAMPED INTO ITS RANGE. An unreachable
-              // target never "arrives", so homing would stay engaged forever
-              // with the joint parked at the boundary and manual control locked.
-              const target = clamp(0, lo, hi);
+              // The row's own Home, CLAMPED INTO ITS RANGE. Defaulting to the
+              // mate's zero was wrong for joints whose zero is an END of travel
+              // — the jaws (0…90 and −90…0) both homed to an extreme. An
+              // unreachable target also never "arrives", so homing would stay
+              // engaged forever with the joint parked at the boundary.
+              const target = clamp(row.home ?? 0, lo, hi);
               const rem = target - st.commanded;
               if (Math.abs(rem) <= HOME_TOL) st.commanded = target;
               else { allHome = false; st.commanded += Math.sign(rem) * Math.min(HOME_RATE*dt, Math.abs(rem)); }
@@ -863,7 +911,10 @@
         }
         if (homing && allHome) homing = false;
 
-        if (live && now - lastFlush >= MIN_POST_MS) flush();
+        stepSweep(now);
+        // A sweep is an explicit click, so it writes without the deadman — the
+        // deadman guards the controller, and a sweep has no controller to guard.
+        if ((live || sweeping) && now - lastFlush >= MIN_POST_MS) flush();
 
         // diagram
         const ax = (i) => pad.axes[i] ?? 0;
@@ -877,7 +928,7 @@
         if (READONLY) setBar("pad","bad","Open a workspace, not a version — versions are read-only.");
         else if (homing) {
           const targets = ROWS.filter((row) => R.get(row.id)?.ok && srcOf(row).kind !== "trigger")
-            .map((row) => { const [lo,hi] = boundsOf(row.id); return clamp(0, lo, hi); });
+            .map((row) => { const [lo,hi] = boundsOf(row.id); return clamp(row.home ?? 0, lo, hi); });
           const offZero = targets.some((t) => Math.abs(t) > 0.001);
           setBar("pad","warn", `Homing at ${HOME_RATE}°/s — move a stick to cancel` +
             (offZero ? ` (targets: ${targets.map((t)=>t.toFixed(1)+"°").join(", ")} — clamped into each mate's limits)` : " to 0°"));
