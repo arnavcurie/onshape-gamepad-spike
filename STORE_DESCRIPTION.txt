@@ -106,8 +106,9 @@ RB, both stick clicks, all four D-pad directions. Guide is offered, though
 Windows usually claims it for the Game Bar.
 
 Two per-row tools need no controller. Sweep runs one joint limit to limit and
-back over about four seconds, proving a binding moves the model and showing
-its travel. Home returns one joint, and Home All works from the panel too.
+back at the same speed a fully deflected stick gives it, proving a binding
+moves the model and showing its travel. Home returns one joint, and Home All
+works from the panel too.
 
 
 HOW INPUT BECOMES MOTION

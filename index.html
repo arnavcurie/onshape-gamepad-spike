@@ -784,7 +784,12 @@
       // the setup tool: it proves a binding actually moves the model, and shows
       // the real travel, before anyone tries to fly it. It writes through the
       // same throttled flush as the controller, so it cannot outrun the API.
-      const SWEEP_SECONDS = 4;
+      // A FULL ROUND TRIP, lo -> hi -> lo, so one traverse takes half of it.
+      // Derived rather than picked: sweep is the tool that shows you the travel
+      // before you fly it, so it has to run at the speed a fully deflected stick
+      // actually gives you. At a standalone 4 it ran 1.5x faster than the joint
+      // could ever be driven, which is a preview of the wrong thing.
+      const SWEEP_SECONDS = 2 * FULL_RANGE_SECONDS;
       let sweeping = null;   // { id, t0 }
       function toggleSweep(row) {
         if (sweeping?.id === row.id) { sweeping = null; paintSweep(); return; }
