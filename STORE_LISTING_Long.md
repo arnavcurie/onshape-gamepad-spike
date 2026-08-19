@@ -137,9 +137,9 @@ Guide      offered, but Windows usually claims it for the Game Bar first
 
 Two per-row tools need no controller at all:
 
-- **Sweep** runs one joint from limit to limit and back over about 4 seconds. This is the
-  setup tool — it proves a binding actually moves the model, and shows you the real
-  travel, before anyone tries to fly it.
+- **Sweep** runs one joint from limit to limit and back at exactly the speed a fully
+  deflected stick gives it. This is the setup tool — it proves a binding actually moves
+  the model, and shows you the real travel, at the speed you will really drive it.
 - **Home** returns one joint on its own. **Home all** works from the panel as well as
   from the controller.
 
