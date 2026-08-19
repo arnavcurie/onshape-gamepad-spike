@@ -78,7 +78,7 @@ reads; it never writes. Initialize:
     owns it, filling the Range column. A mate with no limits reads
     "unlimited" and clamps at 180 degrees.
   - Seeds each joint's commanded value from its current position, so the first
-    input moves the joint from where it actually is. Nothing jumps.
+    input moves the joint from where it actually is.
   - Captures the home pose: a snapshot of every value of every mate, not just
     the axis a row drives — which restores joints whose orientation no single
     number can describe.
@@ -107,8 +107,7 @@ Windows usually claims it for the Game Bar.
 
 Two per-row tools need no controller. Sweep runs one joint limit to limit and
 back over about four seconds, proving a binding moves the model and showing
-its travel. Home returns one joint on its own, and Home All works from the
-panel too.
+its travel. Home returns one joint, and Home All works from the panel too.
 
 
 HOW INPUT BECOMES MOTION
@@ -143,8 +142,8 @@ Until then the row reads "hold" and tells you which value to sweep through.
 
 WRITE RATE
 
-The panel samples at display rate, roughly 60 Hz, but writes far less often.
-Three gates sit between input and the API:
+The panel samples at roughly 60 Hz but writes far less often. Three gates sit
+between input and the API:
 
   0.15 deg   Epsilon gate. A joint that moved less than this since its last
              write is not written; absorbs the noise a deadzone leaves.
@@ -161,7 +160,7 @@ posts it back.
 
 LIMITATIONS
 
-Every limitation below was measured, and most fail silently — the API returns
+Every limitation below was measured. Most fail silently: the API returns
 success and the model does not move.
 
 Closed kinematic loops cannot be driven. If a mate's value is determined by a

@@ -32,7 +32,11 @@ while i < len(lines):
     ln = lines[i]
     if ln.strip() and ln.isupper() and not ln[:1].isspace():
         flush_para(); flush_pre(); flush_bullet()
-        out.append("<p><b>" + esc(ln.strip()) + "</b></p>")
+        # <br> opens a little air before each section; the portal allows no
+        # heading tags and no <hr>, so this is the separator available. The
+        # leading newline is only for the paste box -- HTML ignores it.
+        lead = "" if not out else "\n<br>"
+        out.append(lead + "<p><b>" + esc(ln.strip()) + "</b></p>")
     elif ln.startswith("  - "):
         flush_para(); flush_pre()
         item = [ln[4:].strip()]
